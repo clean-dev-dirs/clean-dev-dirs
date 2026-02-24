@@ -16,16 +16,15 @@ use walkdir::WalkDir;
 /// symlinks, etc.) are silently skipped so the function always returns a result.
 ///
 /// Returns `0` if the path does not exist or cannot be traversed at the root level.
+#[must_use]
 pub fn calculate_dir_size(path: &Path) -> u64 {
     let mut total = 0u64;
 
-    for entry in WalkDir::new(path) {
-        if let Ok(entry) = entry {
-            if entry.file_type().is_file() {
-                if let Ok(metadata) = entry.metadata() {
-                    total += metadata.len();
-                }
-            }
+    for entry in WalkDir::new(path).into_iter().flatten() {
+        if entry.file_type().is_file()
+            && let Ok(metadata) = entry.metadata()
+        {
+            total += metadata.len();
         }
     }
 

@@ -152,7 +152,7 @@ impl Scanner {
             .filter_map(|mut project| {
                 if project.build_arts.size == 0 {
                     project.build_arts.size =
-                        self.calculate_build_dir_size(&project.build_arts.path);
+                        Self::calculate_build_dir_size(&project.build_arts.path);
                 }
 
                 if project.build_arts.size > 0 {
@@ -194,7 +194,7 @@ impl Scanner {
     /// This method can be CPU and I/O intensive for large directories with
     /// many files. It's designed to be called in parallel for multiple
     /// directories to maximize throughput.
-    fn calculate_build_dir_size(&self, path: &Path) -> u64 {
+    fn calculate_build_dir_size(path: &Path) -> u64 {
         if !path.exists() {
             return 0;
         }
@@ -1850,15 +1850,13 @@ mod tests {
         let empty_dir = tmp.path().join("empty");
         fs::create_dir_all(&empty_dir).unwrap();
 
-        let scanner = default_scanner(ProjectFilter::All);
-        assert_eq!(scanner.calculate_build_dir_size(&empty_dir), 0);
+        assert_eq!(Scanner::calculate_build_dir_size(&empty_dir), 0);
     }
 
     #[test]
     fn test_calculate_build_dir_size_nonexistent() {
-        let scanner = default_scanner(ProjectFilter::All);
         assert_eq!(
-            scanner.calculate_build_dir_size(Path::new("/nonexistent/path")),
+            Scanner::calculate_build_dir_size(Path::new("/nonexistent/path")),
             0
         );
     }
@@ -1872,8 +1870,7 @@ mod tests {
         create_file(&dir.join("sub/file2.txt"), "world!"); // 6 bytes
         create_file(&dir.join("sub/deep/file3.txt"), "!"); // 1 byte
 
-        let scanner = default_scanner(ProjectFilter::All);
-        let size = scanner.calculate_build_dir_size(&dir);
+        let size = Scanner::calculate_build_dir_size(&dir);
         assert_eq!(size, 12);
     }
 
