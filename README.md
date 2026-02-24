@@ -6,7 +6,7 @@
  ▀█▄▄▀    ▀▄▄  ▀█▄▄▀  ▀▄▄▀█  █   █         ▀█▄██  ▀█▄▄▀    █           ▀█▄██  ▄▄█▄▄   █     ▀▄▄▄▀ 
 </pre>
 
-> A fast and efficient CLI tool for recursively cleaning development build directories across 8 language ecosystems to reclaim disk space. Supports Rust, Node.js, Python, Go, Java/Kotlin, C/C++, Swift, and .NET/C#.
+> A fast and efficient CLI tool for recursively cleaning development build directories across 11 language ecosystems to reclaim disk space. Supports Rust, Node.js, Python, Go, Java/Kotlin, C/C++, Swift, .NET/C#, Ruby, Elixir, and Deno.
 
 > Created and maintained by [Tom Planche](https://github.com/TomPlanche). The GitHub organization exists solely to host the Homebrew tap alongside the main repository.
 
@@ -36,7 +36,7 @@ clean-dev-dirs --interactive
 
 ## Features
 
-- **Multi-language support**: Clean build artifacts across 8 ecosystems — Rust (`target/`), Node.js (`node_modules/`), Python (cache dirs), Go (`vendor/`), Java/Kotlin (`target/`/`build/`), C/C++ (`build/`), Swift (`.build/`), and .NET/C# (`bin/`+`obj/`)
+- **Multi-language support**: Clean build artifacts across 11 ecosystems — Rust (`target/`), Node.js (`node_modules/`), Python (cache dirs), Go (`vendor/`), Java/Kotlin (`target/`/`build/`), C/C++ (`build/`), Swift (`.build/`), .NET/C# (`bin/`+`obj/`), Ruby (`.bundle/`/`vendor/bundle/`), Elixir (`_build/`), and Deno (`vendor/`/`node_modules/`)
 - **Parallel scanning**: Lightning-fast directory traversal using multithreading
 - **Smart filtering**: Filter by project size, modification time, and project type
 - **Flexible sorting**: Sort results by size, age, name, or project type with `--sort`
@@ -54,7 +54,7 @@ clean-dev-dirs --interactive
 
 This project is inspired by [cargo-clean-all](https://github.com/dnlmlr/cargo-clean-all), a Rust-specific tool for cleaning cargo projects. I've improved upon the original concept with:
 
-- **Multi-language support**: Extended beyond Rust to support Node.js, Python, Go, Java/Kotlin, C/C++, Swift, and .NET/C# projects
+- **Multi-language support**: Extended beyond Rust to support Node.js, Python, Go, Java/Kotlin, C/C++, Swift, .NET/C#, Ruby, Elixir, and Deno projects
 - **Parallel scanning**: Significantly faster directory traversal using multithreading
 - **Enhanced filtering**: More granular control over what gets cleaned
 - **Cleaner code architecture**: Well-structured, modular codebase for better maintainability
@@ -127,6 +127,15 @@ clean-dev-dirs -p swift
 # Clean only .NET/C# projects
 clean-dev-dirs -p dotnet
 
+# Clean only Ruby projects
+clean-dev-dirs -p ruby
+
+# Clean only Elixir projects
+clean-dev-dirs -p elixir
+
+# Clean only Deno projects
+clean-dev-dirs -p deno
+
 # Clean all project types (default)
 clean-dev-dirs -p all
 ```
@@ -186,7 +195,7 @@ When enabled, compiled outputs are copied to `<project>/bin/` before the build d
 
 - **Rust**: executables from `target/release/` and `target/debug/` are copied to `bin/release/` and `bin/debug/`
 - **Python**: `.whl` files from `dist/` and `.so`/`.pyd` C extensions from `build/` are copied to `bin/`
-- **Node.js / Go / Java / C++ / Swift / .NET**: no-op (their cleaned directories contain dependencies or build outputs not easily preservable)
+- **Node.js / Go / Java / C++ / Swift / .NET / Ruby / Elixir / Deno**: no-op (their cleaned directories contain dependencies or build outputs not easily preservable)
 
 ### Trash Support (Default)
 
@@ -444,7 +453,7 @@ clean-dev-dirs
 
 | Option | Short | Values | Description |
 |--------|-------|--------|-------------|
-| `--project-type` | `-p` | `all`, `rust`, `node`, `python`, `go`, `java`, `cpp`, `swift`, `dotnet` | Filter by project type (default: `all`) |
+| `--project-type` | `-p` | `all`, `rust`, `node`, `python`, `go`, `java`, `cpp`, `swift`, `dotnet`, `ruby`, `elixir`, `deno` | Filter by project type (default: `all`) |
 
 ### Filtering Options
 
@@ -557,6 +566,21 @@ The tool automatically detects development projects by looking for characteristi
 - **Cleans**: The larger of `bin/` or `obj/` directories
 - **Name extraction**: From the `.csproj` filename
 
+### Ruby Projects
+- **Detection criteria**: Both `Gemfile` and `.bundle/` or `vendor/bundle/` directory must exist
+- **Cleans**: The larger of `.bundle/` or `vendor/bundle/` directories
+- **Name extraction**: From the `name` field in a `.gemspec` file, or falls back to directory name
+
+### Elixir Projects
+- **Detection criteria**: Both `mix.exs` and `_build/` directory must exist
+- **Cleans**: `_build/` directory
+- **Name extraction**: From `app:` atom in `mix.exs`, or falls back to directory name
+
+### Deno Projects
+- **Detection criteria**: `deno.json` or `deno.jsonc` + `vendor/` directory (primary), or `node_modules/` without `package.json` (secondary)
+- **Cleans**: `vendor/` or `node_modules/` directory
+- **Name extraction**: From `name` field in `deno.json`/`deno.jsonc`, or falls back to directory name
+
 ## Safety Features
 
 - **Trash by default**: Directories are moved to the system trash for recoverable cleanups; use `--permanent` to override
@@ -581,6 +605,9 @@ The tool provides beautiful, colored output including:
 | ⚙️ | C/C++ projects |
 | 🐦 | Swift projects |
 | 🔷 | .NET/C# projects |
+| 💎 | Ruby projects |
+| 💧 | Elixir projects |
+| 🦕 | Deno projects |
 
 ### Sample Output
 
@@ -700,9 +727,8 @@ Consider these when testing your implementation:
 Some languages that would be great additions:
 
 - **PHP**: Look for `composer.json` + `vendor/`
-- **Ruby**: Look for `Gemfile` + `vendor/bundle/`
 - **Dart/Flutter**: Look for `pubspec.yaml` + `.dart_tool/` or `build/`
-- **Elixir**: Look for `mix.exs` + `_build/` or `deps/`
+- **Scala**: Look for `build.sbt` + `target/`
 
 #### 8. **Pull Request Guidelines**
 

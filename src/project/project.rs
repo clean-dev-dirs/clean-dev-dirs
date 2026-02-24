@@ -66,6 +66,25 @@ pub enum ProjectType {
     /// .NET projects are identified by the presence of `.csproj` project files
     /// alongside `bin/` and/or `obj/` output directories.
     DotNet,
+
+    /// Ruby project with Gemfile and .bundle/ or vendor/bundle/ directory
+    ///
+    /// Ruby projects are identified by the presence of a `Gemfile`
+    /// alongside a `.bundle/` or `vendor/bundle/` directory.
+    Ruby,
+
+    /// Elixir project with mix.exs and _build/ directory
+    ///
+    /// Elixir projects are identified by the presence of a `mix.exs`
+    /// file and a `_build/` directory.
+    Elixir,
+
+    /// Deno project with deno.json or deno.jsonc and vendor/ or `node_modules`/ directory
+    ///
+    /// Deno projects are identified by the presence of a `deno.json` or `deno.jsonc`
+    /// file alongside a `vendor/` directory (from `deno vendor`) or a `node_modules/`
+    /// directory (Deno 2 npm support without a `package.json`).
+    Deno,
 }
 
 /// Information about build artifacts that can be cleaned.
@@ -199,6 +218,9 @@ impl Display for Project {
             ProjectType::Cpp => "⚙️",
             ProjectType::Swift => "🐦",
             ProjectType::DotNet => "🔷",
+            ProjectType::Ruby => "💎",
+            ProjectType::Elixir => "💧",
+            ProjectType::Deno => "🦕",
         };
 
         if let Some(name) = &self.name {
@@ -248,6 +270,9 @@ mod tests {
         assert_eq!(ProjectType::Cpp, ProjectType::Cpp);
         assert_eq!(ProjectType::Swift, ProjectType::Swift);
         assert_eq!(ProjectType::DotNet, ProjectType::DotNet);
+        assert_eq!(ProjectType::Ruby, ProjectType::Ruby);
+        assert_eq!(ProjectType::Elixir, ProjectType::Elixir);
+        assert_eq!(ProjectType::Deno, ProjectType::Deno);
 
         assert_ne!(ProjectType::Rust, ProjectType::Node);
         assert_ne!(ProjectType::Node, ProjectType::Python);
@@ -256,6 +281,9 @@ mod tests {
         assert_ne!(ProjectType::Java, ProjectType::Cpp);
         assert_ne!(ProjectType::Cpp, ProjectType::Swift);
         assert_ne!(ProjectType::Swift, ProjectType::DotNet);
+        assert_ne!(ProjectType::DotNet, ProjectType::Ruby);
+        assert_ne!(ProjectType::Ruby, ProjectType::Elixir);
+        assert_ne!(ProjectType::Elixir, ProjectType::Deno);
     }
 
     #[test]
@@ -375,6 +403,39 @@ mod tests {
 
         let expected = "🔷 my-dotnet-app (/path/to/dotnet-project)";
         assert_eq!(format!("{dotnet_project}"), expected);
+
+        let ruby_project = create_test_project(
+            ProjectType::Ruby,
+            "/path/to/ruby-project",
+            "/path/to/ruby-project/vendor/bundle",
+            2048,
+            Some("my-ruby-gem".to_string()),
+        );
+
+        let expected = "💎 my-ruby-gem (/path/to/ruby-project)";
+        assert_eq!(format!("{ruby_project}"), expected);
+
+        let elixir_project = create_test_project(
+            ProjectType::Elixir,
+            "/path/to/elixir-project",
+            "/path/to/elixir-project/_build",
+            1024,
+            Some("my_elixir_app".to_string()),
+        );
+
+        let expected = "💧 my_elixir_app (/path/to/elixir-project)";
+        assert_eq!(format!("{elixir_project}"), expected);
+
+        let deno_project = create_test_project(
+            ProjectType::Deno,
+            "/path/to/deno-project",
+            "/path/to/deno-project/vendor",
+            512,
+            Some("my-deno-app".to_string()),
+        );
+
+        let expected = "🦕 my-deno-app (/path/to/deno-project)";
+        assert_eq!(format!("{deno_project}"), expected);
     }
 
     #[test]

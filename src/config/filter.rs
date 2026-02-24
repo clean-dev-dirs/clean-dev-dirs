@@ -40,6 +40,15 @@ pub enum ProjectFilter {
     /// Include only .NET/C# projects (.csproj + bin/ + obj/)
     #[value(name = "dotnet")]
     DotNet,
+
+    /// Include only Ruby projects (Gemfile + .bundle/ or vendor/bundle/)
+    Ruby,
+
+    /// Include only Elixir projects (mix.exs + _build/)
+    Elixir,
+
+    /// Include only Deno projects (deno.json + vendor/ or `node_modules`/)
+    Deno,
 }
 
 /// Configuration for project filtering criteria.
@@ -106,6 +115,9 @@ mod tests {
         assert_eq!(ProjectFilter::Cpp, ProjectFilter::Cpp);
         assert_eq!(ProjectFilter::Swift, ProjectFilter::Swift);
         assert_eq!(ProjectFilter::DotNet, ProjectFilter::DotNet);
+        assert_eq!(ProjectFilter::Ruby, ProjectFilter::Ruby);
+        assert_eq!(ProjectFilter::Elixir, ProjectFilter::Elixir);
+        assert_eq!(ProjectFilter::Deno, ProjectFilter::Deno);
 
         assert_ne!(ProjectFilter::All, ProjectFilter::Rust);
         assert_ne!(ProjectFilter::Rust, ProjectFilter::Node);
@@ -115,6 +127,9 @@ mod tests {
         assert_ne!(ProjectFilter::Java, ProjectFilter::Cpp);
         assert_ne!(ProjectFilter::Cpp, ProjectFilter::Swift);
         assert_ne!(ProjectFilter::Swift, ProjectFilter::DotNet);
+        assert_ne!(ProjectFilter::DotNet, ProjectFilter::Ruby);
+        assert_ne!(ProjectFilter::Ruby, ProjectFilter::Elixir);
+        assert_ne!(ProjectFilter::Elixir, ProjectFilter::Deno);
     }
 
     #[test]

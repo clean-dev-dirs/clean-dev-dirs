@@ -8,7 +8,7 @@
 //!
 //! - [`Project`] - Represents an individual development project with build artifacts
 //! - [`Projects`] - A collection of projects with batch operations
-//! - [`ProjectType`] - Enumeration of supported project types (Rust, Node.js)
+//! - [`ProjectType`] - Enumeration of supported project types (Rust, Node.js, Python, Go, Java, C/C++, Swift, .NET, Ruby, Elixir, Deno)
 //! - [`BuildArtifacts`] - Information about build directories and their sizes
 
 #[allow(clippy::module_inception)]
