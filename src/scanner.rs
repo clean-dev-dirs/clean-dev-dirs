@@ -1286,7 +1286,11 @@ impl Scanner {
             return None;
         }
 
-        let config_path = if deno_json.exists() { deno_json } else { deno_jsonc };
+        let config_path = if deno_json.exists() {
+            deno_json
+        } else {
+            deno_jsonc
+        };
 
         // vendor/ directory (created by `deno vendor`)
         let vendor_dir = path.join("vendor");
@@ -1368,21 +1372,21 @@ impl Scanner {
         let bundle_dir = path.join(".bundle");
         let vendor_bundle_dir = path.join("vendor").join("bundle");
 
-        let (build_path, precomputed_size) =
-            match (bundle_dir.exists(), vendor_bundle_dir.exists()) {
-                (true, true) => {
-                    let bundle_size = crate::utils::calculate_dir_size(&bundle_dir);
-                    let vendor_size = crate::utils::calculate_dir_size(&vendor_bundle_dir);
-                    if vendor_size >= bundle_size {
-                        (vendor_bundle_dir, vendor_size)
-                    } else {
-                        (bundle_dir, bundle_size)
-                    }
+        let (build_path, precomputed_size) = match (bundle_dir.exists(), vendor_bundle_dir.exists())
+        {
+            (true, true) => {
+                let bundle_size = crate::utils::calculate_dir_size(&bundle_dir);
+                let vendor_size = crate::utils::calculate_dir_size(&vendor_bundle_dir);
+                if vendor_size >= bundle_size {
+                    (vendor_bundle_dir, vendor_size)
+                } else {
+                    (bundle_dir, bundle_size)
                 }
-                (true, false) => (bundle_dir, 0),
-                (false, true) => (vendor_bundle_dir, 0),
-                (false, false) => return None,
-            };
+            }
+            (true, false) => (bundle_dir, 0),
+            (false, true) => (vendor_bundle_dir, 0),
+            (false, false) => return None,
+        };
 
         let name = self.extract_ruby_project_name(path, errors);
 
@@ -1415,7 +1419,8 @@ impl Scanner {
             {
                 for line in content.lines() {
                     let trimmed = line.trim();
-                    if trimmed.contains(".name") && trimmed.contains('=')
+                    if trimmed.contains(".name")
+                        && trimmed.contains('=')
                         && let Some(name) = Self::extract_quoted_value(trimmed)
                     {
                         return Some(name);
@@ -2149,12 +2154,18 @@ mod tests {
         let base = tmp.path();
 
         let project = base.join("ruby-project");
-        create_file(&project.join("Gemfile"), "source 'https://rubygems.org'\ngem 'rails'");
+        create_file(
+            &project.join("Gemfile"),
+            "source 'https://rubygems.org'\ngem 'rails'",
+        );
         create_file(
             &project.join("my-app.gemspec"),
             "Gem::Specification.new do |spec|\n  spec.name = \"my-ruby-gem\"\nend",
         );
-        create_file(&project.join("vendor/bundle/ruby/3.2.0/gems/rails/init.rb"), "# rails");
+        create_file(
+            &project.join("vendor/bundle/ruby/3.2.0/gems/rails/init.rb"),
+            "# rails",
+        );
 
         let scanner = default_scanner(ProjectFilter::Ruby);
         let projects = scanner.scan_directory(base);
@@ -2199,7 +2210,10 @@ mod tests {
 
         let project = base.join("my-ruby-app");
         create_file(&project.join("Gemfile"), "source 'https://rubygems.org'");
-        create_file(&project.join("vendor/bundle/gems/sinatra/lib/sinatra.rb"), "# sinatra");
+        create_file(
+            &project.join("vendor/bundle/gems/sinatra/lib/sinatra.rb"),
+            "# sinatra",
+        );
 
         let scanner = default_scanner(ProjectFilter::Ruby);
         let projects = scanner.scan_directory(base);
@@ -2219,7 +2233,10 @@ mod tests {
             &project.join("mix.exs"),
             "defmodule MyApp.MixProject do\n  def project do\n    [app: :my_app,\n     version: \"0.1.0\"]\n  end\nend",
         );
-        create_file(&project.join("_build/dev/lib/my_app/.mix/compile.elixir"), "# build");
+        create_file(
+            &project.join("_build/dev/lib/my_app/.mix/compile.elixir"),
+            "# build",
+        );
 
         let scanner = default_scanner(ProjectFilter::Elixir);
         let projects = scanner.scan_directory(base);
@@ -2251,7 +2268,10 @@ mod tests {
 
         let project = base.join("my_elixir_project");
         create_file(&project.join("mix.exs"), "# minimal mix.exs without app:");
-        create_file(&project.join("_build/prod/lib/my_elixir_project.beam"), "bytecode");
+        create_file(
+            &project.join("_build/prod/lib/my_elixir_project.beam"),
+            "bytecode",
+        );
 
         let scanner = default_scanner(ProjectFilter::Elixir);
         let projects = scanner.scan_directory(base);
@@ -2306,7 +2326,10 @@ mod tests {
 
         let project = base.join("deno-npm-project");
         create_file(&project.join("deno.json"), r#"{"nodeModulesDir": "auto"}"#);
-        create_file(&project.join("node_modules/.deno/lodash/index.js"), "// lodash");
+        create_file(
+            &project.join("node_modules/.deno/lodash/index.js"),
+            "// lodash",
+        );
 
         let scanner = default_scanner(ProjectFilter::Deno);
         let projects = scanner.scan_directory(base);
@@ -2321,7 +2344,7 @@ mod tests {
 
         // deno.json + package.json + node_modules → Node project (not Deno)
         let project = base.join("ambiguous-project");
-        create_file(&project.join("deno.json"), r#"{}"#);
+        create_file(&project.join("deno.json"), r"{}");
         create_file(&project.join("package.json"), r#"{"name": "my-node-app"}"#);
         create_file(&project.join("node_modules/dep/index.js"), "// dep");
 
@@ -2337,7 +2360,7 @@ mod tests {
         let base = tmp.path();
 
         let project = base.join("deno-no-artifact");
-        create_file(&project.join("deno.json"), r#"{}"#);
+        create_file(&project.join("deno.json"), r"{}");
 
         let scanner = default_scanner(ProjectFilter::Deno);
         let projects = scanner.scan_directory(base);

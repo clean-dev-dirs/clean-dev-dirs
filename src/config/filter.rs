@@ -47,7 +47,7 @@ pub enum ProjectFilter {
     /// Include only Elixir projects (mix.exs + _build/)
     Elixir,
 
-    /// Include only Deno projects (deno.json + vendor/ or node_modules/)
+    /// Include only Deno projects (deno.json + vendor/ or `node_modules`/)
     Deno,
 }
 

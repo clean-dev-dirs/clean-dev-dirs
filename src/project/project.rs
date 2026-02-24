@@ -79,7 +79,7 @@ pub enum ProjectType {
     /// file and a `_build/` directory.
     Elixir,
 
-    /// Deno project with deno.json or deno.jsonc and vendor/ or node_modules/ directory
+    /// Deno project with deno.json or deno.jsonc and vendor/ or `node_modules`/ directory
     ///
     /// Deno projects are identified by the presence of a `deno.json` or `deno.jsonc`
     /// file alongside a `vendor/` directory (from `deno vendor`) or a `node_modules/`
