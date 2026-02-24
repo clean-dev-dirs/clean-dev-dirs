@@ -5,4 +5,4 @@
 
 pub mod size;
 
-pub use size::parse_size;
+pub use size::{calculate_dir_size, parse_size};

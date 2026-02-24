@@ -199,26 +199,7 @@ impl Scanner {
             return 0;
         }
 
-        let mut total_size = 0u64;
-
-        for entry in WalkDir::new(path) {
-            match entry {
-                Ok(entry) => {
-                    if entry.file_type().is_file()
-                        && let Ok(metadata) = entry.metadata()
-                    {
-                        total_size += metadata.len();
-                    }
-                }
-                Err(e) => {
-                    if self.scan_options.verbose {
-                        eprintln!("Warning: {e}");
-                    }
-                }
-            }
-        }
-
-        total_size
+        crate::utils::calculate_dir_size(path)
     }
 
     /// Detect a Node.js project in the specified directory.
@@ -719,13 +700,12 @@ impl Scanner {
         for &dir_name in &build_dirs {
             let dir_path = path.join(dir_name);
 
-            if dir_path.exists()
-                && dir_path.is_dir()
-                && let Ok(size) = Self::calculate_directory_size(&dir_path)
-                && size > largest_size
-            {
-                largest_size = size;
-                largest_build_dir = Some(dir_path);
+            if dir_path.exists() && dir_path.is_dir() {
+                let size = crate::utils::calculate_dir_size(&dir_path);
+                if size > largest_size {
+                    largest_size = size;
+                    largest_build_dir = Some(dir_path);
+                }
             }
         }
 
@@ -1223,8 +1203,8 @@ impl Scanner {
         // Pick the larger of bin/ and obj/ as the primary build artifact
         let (build_path, precomputed_size) = match (bin_dir.exists(), obj_dir.exists()) {
             (true, true) => {
-                let bin_size = Self::calculate_directory_size(&bin_dir).unwrap_or(0);
-                let obj_size = Self::calculate_directory_size(&obj_dir).unwrap_or(0);
+                let bin_size = crate::utils::calculate_dir_size(&bin_dir);
+                let obj_size = crate::utils::calculate_dir_size(&obj_dir);
                 if obj_size >= bin_size {
                     (obj_dir, obj_size)
                 } else {
@@ -1264,26 +1244,6 @@ impl Scanner {
             }
         }
         None
-    }
-
-    /// Calculate the size of a directory recursively.
-    ///
-    /// This is a helper method used for Python and .NET projects to determine which
-    /// cache directory is the largest and should be the primary cleanup target.
-    fn calculate_directory_size(dir_path: &Path) -> std::io::Result<u64> {
-        let mut total_size = 0;
-
-        for entry in fs::read_dir(dir_path)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                total_size += Self::calculate_directory_size(&path).unwrap_or(0);
-            } else {
-                total_size += entry.metadata()?.len();
-            }
-        }
-
-        Ok(total_size)
     }
 }
 
