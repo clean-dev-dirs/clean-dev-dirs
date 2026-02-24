@@ -63,7 +63,10 @@ pub fn preserve_executables(project: &Project) -> Result<Vec<PreservedExecutable
         | ProjectType::Java
         | ProjectType::Cpp
         | ProjectType::Swift
-        | ProjectType::DotNet => Ok(Vec::new()),
+        | ProjectType::DotNet
+        | ProjectType::Ruby
+        | ProjectType::Elixir
+        | ProjectType::Deno => Ok(Vec::new()),
     }
 }
 
@@ -259,11 +262,12 @@ mod tests {
         let build_dir = match kind {
             ProjectType::Rust | ProjectType::Java => root.join("target"),
             ProjectType::Python => root.join("__pycache__"),
-            ProjectType::Node => root.join("node_modules"),
-            ProjectType::Go => root.join("vendor"),
+            ProjectType::Node | ProjectType::Deno => root.join("node_modules"),
+            ProjectType::Go | ProjectType::Ruby => root.join("vendor"),
             ProjectType::Cpp => root.join("build"),
             ProjectType::Swift => root.join(".build"),
             ProjectType::DotNet => root.join("obj"),
+            ProjectType::Elixir => root.join("_build"),
         };
 
         fs::create_dir_all(&build_dir).unwrap();

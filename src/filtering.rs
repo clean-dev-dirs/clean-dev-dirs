@@ -179,17 +179,20 @@ fn sort_by_age(projects: &mut Vec<Project>) {
 /// Map a `ProjectType` to an ordering index for type-based sorting.
 ///
 /// Types are ordered alphabetically by their display name:
-/// C/C++, .NET, Go, Java, Node, Python, Rust, Swift
+/// C/C++, Deno, .NET, Elixir, Go, Java, Node, Python, Ruby, Rust, Swift
 const fn type_order(kind: &ProjectType) -> u8 {
     match kind {
         ProjectType::Cpp => 0,
-        ProjectType::DotNet => 1,
-        ProjectType::Go => 2,
-        ProjectType::Java => 3,
-        ProjectType::Node => 4,
-        ProjectType::Python => 5,
-        ProjectType::Rust => 6,
-        ProjectType::Swift => 7,
+        ProjectType::Deno => 1,
+        ProjectType::DotNet => 2,
+        ProjectType::Elixir => 3,
+        ProjectType::Go => 4,
+        ProjectType::Java => 5,
+        ProjectType::Node => 6,
+        ProjectType::Python => 7,
+        ProjectType::Ruby => 8,
+        ProjectType::Rust => 9,
+        ProjectType::Swift => 10,
     }
 }
 
@@ -488,6 +491,27 @@ mod tests {
                 100,
                 Some("dotnet-proj".into()),
             ),
+            create_test_project(
+                ProjectType::Ruby,
+                "/rb",
+                "/rb/vendor/bundle",
+                100,
+                Some("ruby-proj".into()),
+            ),
+            create_test_project(
+                ProjectType::Elixir,
+                "/ex",
+                "/ex/_build",
+                100,
+                Some("elixir-proj".into()),
+            ),
+            create_test_project(
+                ProjectType::Deno,
+                "/dn",
+                "/dn/vendor",
+                100,
+                Some("deno-proj".into()),
+            ),
         ];
 
         let sort_opts = SortOptions {
@@ -497,13 +521,16 @@ mod tests {
         sort_projects(&mut projects, &sort_opts);
 
         assert_eq!(projects[0].kind, ProjectType::Cpp);
-        assert_eq!(projects[1].kind, ProjectType::DotNet);
-        assert_eq!(projects[2].kind, ProjectType::Go);
-        assert_eq!(projects[3].kind, ProjectType::Java);
-        assert_eq!(projects[4].kind, ProjectType::Node);
-        assert_eq!(projects[5].kind, ProjectType::Python);
-        assert_eq!(projects[6].kind, ProjectType::Rust);
-        assert_eq!(projects[7].kind, ProjectType::Swift);
+        assert_eq!(projects[1].kind, ProjectType::Deno);
+        assert_eq!(projects[2].kind, ProjectType::DotNet);
+        assert_eq!(projects[3].kind, ProjectType::Elixir);
+        assert_eq!(projects[4].kind, ProjectType::Go);
+        assert_eq!(projects[5].kind, ProjectType::Java);
+        assert_eq!(projects[6].kind, ProjectType::Node);
+        assert_eq!(projects[7].kind, ProjectType::Python);
+        assert_eq!(projects[8].kind, ProjectType::Ruby);
+        assert_eq!(projects[9].kind, ProjectType::Rust);
+        assert_eq!(projects[10].kind, ProjectType::Swift);
     }
 
     #[test]
@@ -616,12 +643,15 @@ mod tests {
 
     #[test]
     fn test_type_order_values() {
-        assert!(type_order(&ProjectType::Cpp) < type_order(&ProjectType::DotNet));
-        assert!(type_order(&ProjectType::DotNet) < type_order(&ProjectType::Go));
+        assert!(type_order(&ProjectType::Cpp) < type_order(&ProjectType::Deno));
+        assert!(type_order(&ProjectType::Deno) < type_order(&ProjectType::DotNet));
+        assert!(type_order(&ProjectType::DotNet) < type_order(&ProjectType::Elixir));
+        assert!(type_order(&ProjectType::Elixir) < type_order(&ProjectType::Go));
         assert!(type_order(&ProjectType::Go) < type_order(&ProjectType::Java));
         assert!(type_order(&ProjectType::Java) < type_order(&ProjectType::Node));
         assert!(type_order(&ProjectType::Node) < type_order(&ProjectType::Python));
-        assert!(type_order(&ProjectType::Python) < type_order(&ProjectType::Rust));
+        assert!(type_order(&ProjectType::Python) < type_order(&ProjectType::Ruby));
+        assert!(type_order(&ProjectType::Ruby) < type_order(&ProjectType::Rust));
         assert!(type_order(&ProjectType::Rust) < type_order(&ProjectType::Swift));
     }
 }

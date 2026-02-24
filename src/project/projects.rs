@@ -334,5 +334,8 @@ const fn icon_for_project_type(kind: &ProjectType) -> &'static str {
         ProjectType::Cpp => "⚙️",
         ProjectType::Swift => "🐦",
         ProjectType::DotNet => "🔷",
+        ProjectType::Ruby => "💎",
+        ProjectType::Elixir => "💧",
+        ProjectType::Deno => "🦕",
     }
 }

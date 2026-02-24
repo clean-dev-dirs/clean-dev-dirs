@@ -165,6 +165,9 @@ impl JsonSummary {
                 ProjectType::Cpp => "cpp",
                 ProjectType::Swift => "swift",
                 ProjectType::DotNet => "dotnet",
+                ProjectType::Ruby => "ruby",
+                ProjectType::Elixir => "elixir",
+                ProjectType::Deno => "deno",
             };
 
             let entry = by_type.entry(key.to_string()).or_insert((0, 0));

@@ -269,6 +269,7 @@ impl Scanner {
     /// # Project Detection Logic
     ///
     /// - **Rust projects**: Presence of both `Cargo.toml` and `target/` directory
+    /// - **Deno projects**: Presence of `deno.json`/`deno.jsonc` with `vendor/` or `node_modules/`
     /// - **Node.js projects**: Presence of both `package.json` and `node_modules/` directory
     /// - **Python projects**: Presence of configuration files and cache directories
     /// - **Go projects**: Presence of both `go.mod` and `vendor/` directory
@@ -276,6 +277,8 @@ impl Scanner {
     /// - **C/C++ projects**: Presence of `CMakeLists.txt` or `Makefile` with `build/`
     /// - **Swift projects**: Presence of `Package.swift` with `.build/`
     /// - **.NET/C# projects**: Presence of `.csproj` files with `bin/` or `obj/`
+    /// - **Ruby projects**: Presence of `Gemfile` with `.bundle/` or `vendor/bundle/`
+    /// - **Elixir projects**: Presence of `mix.exs` with `_build/`
     fn detect_project(
         &self,
         entry: &DirEntry,
@@ -289,9 +292,15 @@ impl Scanner {
 
         // Detectors are tried in order; the first match wins.
         // More specific ecosystems are checked before more generic ones
-        // (e.g. Java before C/C++, since both can use `build/`).
+        // (e.g. Java before C/C++, since both can use `build/`; Deno before
+        // Node since Deno 2 projects may also have a node_modules/).
         self.try_detect(ProjectFilter::Rust, || {
             self.detect_rust_project(path, errors)
+        })
+        .or_else(|| {
+            self.try_detect(ProjectFilter::Deno, || {
+                self.detect_deno_project(path, errors)
+            })
         })
         .or_else(|| {
             self.try_detect(ProjectFilter::Node, || {
@@ -316,6 +325,16 @@ impl Scanner {
         })
         .or_else(|| self.try_detect(ProjectFilter::Go, || self.detect_go_project(path, errors)))
         .or_else(|| self.try_detect(ProjectFilter::Cpp, || self.detect_cpp_project(path, errors)))
+        .or_else(|| {
+            self.try_detect(ProjectFilter::Ruby, || {
+                self.detect_ruby_project(path, errors)
+            })
+        })
+        .or_else(|| {
+            self.try_detect(ProjectFilter::Elixir, || {
+                self.detect_elixir_project(path, errors)
+            })
+        })
     }
 
     /// Run a detector only if the current project filter allows it.
@@ -632,6 +651,7 @@ impl Scanner {
             ".coverage",
             "node_modules",
             "obj",
+            "_build",
         ];
 
         path.file_name()
@@ -1244,6 +1264,234 @@ impl Scanner {
             }
         }
         None
+    }
+
+    /// Detect a Deno project in the specified directory.
+    ///
+    /// This method checks for a `deno.json` or `deno.jsonc` manifest alongside a
+    /// `vendor/` directory (from `deno vendor`) or a `node_modules/` directory
+    /// (Deno 2 npm support without a `package.json` to avoid overlap with Node.js).
+    ///
+    /// Deno detection runs before Node.js so that a project with `deno.json` and
+    /// `node_modules/` (but no `package.json`) is classified as Deno.
+    fn detect_deno_project(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<Project> {
+        let deno_json = path.join("deno.json");
+        let deno_jsonc = path.join("deno.jsonc");
+
+        if !deno_json.exists() && !deno_jsonc.exists() {
+            return None;
+        }
+
+        let config_path = if deno_json.exists() { deno_json } else { deno_jsonc };
+
+        // vendor/ directory (created by `deno vendor`)
+        let vendor_dir = path.join("vendor");
+        if vendor_dir.exists() {
+            let name = self.extract_deno_project_name(&config_path, errors);
+            return Some(Project::new(
+                ProjectType::Deno,
+                path.to_path_buf(),
+                BuildArtifacts {
+                    path: vendor_dir,
+                    size: 0,
+                },
+                name,
+            ));
+        }
+
+        // node_modules/ (Deno 2 npm support) — only when no package.json exists
+        let node_modules = path.join("node_modules");
+        if node_modules.exists() && !path.join("package.json").exists() {
+            let name = self.extract_deno_project_name(&config_path, errors);
+            return Some(Project::new(
+                ProjectType::Deno,
+                path.to_path_buf(),
+                BuildArtifacts {
+                    path: node_modules,
+                    size: 0,
+                },
+                name,
+            ));
+        }
+
+        None
+    }
+
+    /// Extract the project name from a `deno.json` or `deno.jsonc` file.
+    ///
+    /// Parses the JSON file and reads the top-level `"name"` field.
+    /// Falls back to the directory name if the field is absent or the file cannot be parsed.
+    fn extract_deno_project_name(
+        &self,
+        config_path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        match fs::read_to_string(config_path) {
+            Ok(content) => {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content)
+                    && let Some(name) = json.get("name").and_then(|v| v.as_str())
+                {
+                    return Some(name.to_string());
+                }
+                Self::fallback_to_directory_name(config_path.parent()?)
+            }
+            Err(e) => {
+                self.log_file_error(config_path, &e, errors);
+                Self::fallback_to_directory_name(config_path.parent()?)
+            }
+        }
+    }
+
+    /// Detect a Ruby project in the specified directory.
+    ///
+    /// This method checks for a `Gemfile` alongside a `.bundle/` or `vendor/bundle/`
+    /// directory. When both exist the larger one is selected as the primary artifact.
+    ///
+    /// # Detection Criteria
+    ///
+    /// 1. `Gemfile` file exists in directory
+    /// 2. At least one of `.bundle/` or `vendor/bundle/` directories exists
+    fn detect_ruby_project(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<Project> {
+        let gemfile = path.join("Gemfile");
+        if !gemfile.exists() {
+            return None;
+        }
+
+        let bundle_dir = path.join(".bundle");
+        let vendor_bundle_dir = path.join("vendor").join("bundle");
+
+        let (build_path, precomputed_size) =
+            match (bundle_dir.exists(), vendor_bundle_dir.exists()) {
+                (true, true) => {
+                    let bundle_size = crate::utils::calculate_dir_size(&bundle_dir);
+                    let vendor_size = crate::utils::calculate_dir_size(&vendor_bundle_dir);
+                    if vendor_size >= bundle_size {
+                        (vendor_bundle_dir, vendor_size)
+                    } else {
+                        (bundle_dir, bundle_size)
+                    }
+                }
+                (true, false) => (bundle_dir, 0),
+                (false, true) => (vendor_bundle_dir, 0),
+                (false, false) => return None,
+            };
+
+        let name = self.extract_ruby_project_name(path, errors);
+
+        Some(Project::new(
+            ProjectType::Ruby,
+            path.to_path_buf(),
+            BuildArtifacts {
+                path: build_path,
+                size: precomputed_size,
+            },
+            name,
+        ))
+    }
+
+    /// Extract the project name from a Ruby project directory.
+    ///
+    /// Looks for a `.gemspec` file and parses the `spec.name` or `s.name` assignment.
+    /// Falls back to the directory name.
+    fn extract_ruby_project_name(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        let entries = fs::read_dir(path).ok()?;
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            if entry_path.is_file()
+                && entry_path.extension().and_then(|e| e.to_str()) == Some("gemspec")
+                && let Some(content) = self.read_file_content(&entry_path, errors)
+            {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.contains(".name") && trimmed.contains('=')
+                        && let Some(name) = Self::extract_quoted_value(trimmed)
+                    {
+                        return Some(name);
+                    }
+                }
+            }
+        }
+
+        Self::fallback_to_directory_name(path)
+    }
+
+    /// Detect an Elixir project in the specified directory.
+    ///
+    /// This method checks for the presence of both `mix.exs` and `_build/`
+    /// to identify an Elixir/Mix project.
+    ///
+    /// # Detection Criteria
+    ///
+    /// 1. `mix.exs` file exists in directory
+    /// 2. `_build/` subdirectory exists in directory
+    fn detect_elixir_project(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<Project> {
+        let mix_exs = path.join("mix.exs");
+        let build_dir = path.join("_build");
+
+        if mix_exs.exists() && build_dir.exists() {
+            let name = self.extract_elixir_project_name(&mix_exs, errors);
+
+            return Some(Project::new(
+                ProjectType::Elixir,
+                path.to_path_buf(),
+                BuildArtifacts {
+                    path: build_dir,
+                    size: 0,
+                },
+                name,
+            ));
+        }
+
+        None
+    }
+
+    /// Extract the project name from a `mix.exs` file.
+    ///
+    /// Looks for the `app: :atom_name` pattern inside the Mix project definition.
+    /// Falls back to the directory name.
+    fn extract_elixir_project_name(
+        &self,
+        mix_exs: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        let content = self.read_file_content(mix_exs, errors)?;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.contains("app:")
+                && let Some(pos) = trimmed.find("app:")
+            {
+                let after = trimmed[pos + 4..].trim_start();
+                if let Some(atom) = after.strip_prefix(':') {
+                    // Elixir atom names consist of alphanumeric chars and underscores
+                    let name: String = atom
+                        .chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_')
+                        .collect();
+                    if !name.is_empty() {
+                        return Some(name);
+                    }
+                }
+            }
+        }
+
+        Self::fallback_to_directory_name(mix_exs.parent()?)
     }
 }
 
@@ -1891,5 +2139,213 @@ mod tests {
         let scanner = default_scanner(ProjectFilter::Rust).with_quiet(true);
         let projects = scanner.scan_directory(base);
         assert_eq!(projects.len(), 1);
+    }
+
+    // ── Ruby project detection tests ─────────────────────────────────────
+
+    #[test]
+    fn test_detect_ruby_with_vendor_bundle() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("ruby-project");
+        create_file(&project.join("Gemfile"), "source 'https://rubygems.org'\ngem 'rails'");
+        create_file(
+            &project.join("my-app.gemspec"),
+            "Gem::Specification.new do |spec|\n  spec.name = \"my-ruby-gem\"\nend",
+        );
+        create_file(&project.join("vendor/bundle/ruby/3.2.0/gems/rails/init.rb"), "# rails");
+
+        let scanner = default_scanner(ProjectFilter::Ruby);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Ruby);
+        assert_eq!(projects[0].name.as_deref(), Some("my-ruby-gem"));
+    }
+
+    #[test]
+    fn test_detect_ruby_with_dot_bundle() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("ruby-dot-bundle");
+        create_file(&project.join("Gemfile"), "source 'https://rubygems.org'");
+        create_file(&project.join(".bundle/gems/rack-2.0/lib/rack.rb"), "# rack");
+
+        let scanner = default_scanner(ProjectFilter::Ruby);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Ruby);
+    }
+
+    #[test]
+    fn test_detect_ruby_no_artifact_not_detected() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        // Gemfile exists but no .bundle/ or vendor/bundle/
+        let project = base.join("gemfile-only");
+        create_file(&project.join("Gemfile"), "source 'https://rubygems.org'");
+
+        let scanner = default_scanner(ProjectFilter::Ruby);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 0);
+    }
+
+    #[test]
+    fn test_detect_ruby_fallback_to_dir_name() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("my-ruby-app");
+        create_file(&project.join("Gemfile"), "source 'https://rubygems.org'");
+        create_file(&project.join("vendor/bundle/gems/sinatra/lib/sinatra.rb"), "# sinatra");
+
+        let scanner = default_scanner(ProjectFilter::Ruby);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name.as_deref(), Some("my-ruby-app"));
+    }
+
+    // ── Elixir project detection tests ───────────────────────────────────
+
+    #[test]
+    fn test_detect_elixir_project() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("elixir-project");
+        create_file(
+            &project.join("mix.exs"),
+            "defmodule MyApp.MixProject do\n  def project do\n    [app: :my_app,\n     version: \"0.1.0\"]\n  end\nend",
+        );
+        create_file(&project.join("_build/dev/lib/my_app/.mix/compile.elixir"), "# build");
+
+        let scanner = default_scanner(ProjectFilter::Elixir);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Elixir);
+        assert_eq!(projects[0].name.as_deref(), Some("my_app"));
+    }
+
+    #[test]
+    fn test_detect_elixir_no_build_not_detected() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("mix-only");
+        create_file(
+            &project.join("mix.exs"),
+            "defmodule MixOnly.MixProject do\n  def project do\n    [app: :mix_only]\n  end\nend",
+        );
+
+        let scanner = default_scanner(ProjectFilter::Elixir);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 0);
+    }
+
+    #[test]
+    fn test_detect_elixir_fallback_to_dir_name() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("my_elixir_project");
+        create_file(&project.join("mix.exs"), "# minimal mix.exs without app:");
+        create_file(&project.join("_build/prod/lib/my_elixir_project.beam"), "bytecode");
+
+        let scanner = default_scanner(ProjectFilter::Elixir);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name.as_deref(), Some("my_elixir_project"));
+    }
+
+    // ── Deno project detection tests ─────────────────────────────────────
+
+    #[test]
+    fn test_detect_deno_with_vendor() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("deno-project");
+        create_file(
+            &project.join("deno.json"),
+            r#"{"name": "my-deno-app", "imports": {}}"#,
+        );
+        create_file(&project.join("vendor/modules.json"), "{}");
+
+        let scanner = default_scanner(ProjectFilter::Deno);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Deno);
+        assert_eq!(projects[0].name.as_deref(), Some("my-deno-app"));
+    }
+
+    #[test]
+    fn test_detect_deno_jsonc_config() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("deno-jsonc-project");
+        create_file(
+            &project.join("deno.jsonc"),
+            r#"{"name": "my-deno-jsonc-app", "tasks": {}}"#,
+        );
+        create_file(&project.join("vendor/modules.json"), "{}");
+
+        let scanner = default_scanner(ProjectFilter::Deno);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Deno);
+        assert_eq!(projects[0].name.as_deref(), Some("my-deno-jsonc-app"));
+    }
+
+    #[test]
+    fn test_detect_deno_node_modules_without_package_json() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("deno-npm-project");
+        create_file(&project.join("deno.json"), r#"{"nodeModulesDir": "auto"}"#);
+        create_file(&project.join("node_modules/.deno/lodash/index.js"), "// lodash");
+
+        let scanner = default_scanner(ProjectFilter::Deno);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Deno);
+    }
+
+    #[test]
+    fn test_detect_deno_node_modules_with_package_json_becomes_node() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        // deno.json + package.json + node_modules → Node project (not Deno)
+        let project = base.join("ambiguous-project");
+        create_file(&project.join("deno.json"), r#"{}"#);
+        create_file(&project.join("package.json"), r#"{"name": "my-node-app"}"#);
+        create_file(&project.join("node_modules/dep/index.js"), "// dep");
+
+        let scanner = default_scanner(ProjectFilter::All);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Node);
+    }
+
+    #[test]
+    fn test_detect_deno_no_artifact_not_detected() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("deno-no-artifact");
+        create_file(&project.join("deno.json"), r#"{}"#);
+
+        let scanner = default_scanner(ProjectFilter::Deno);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 0);
+    }
+
+    #[test]
+    fn test_build_directory_is_excluded() {
+        assert!(Scanner::is_excluded_directory(Path::new("/some/_build")));
     }
 }

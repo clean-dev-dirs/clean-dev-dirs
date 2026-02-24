@@ -145,7 +145,7 @@ struct ScanningArgs {
 #[derive(Parser)]
 #[command(name = "clean-dev-dirs")]
 #[command(
-    about = "Recursively clean development build directories (Rust, Node.js, Python, Go, Java/Kotlin, C/C++, Swift, .NET/C#)"
+    about = "Recursively clean development build directories (Rust, Node.js, Python, Go, Java/Kotlin, C/C++, Swift, .NET/C#, Ruby, Elixir, Deno)"
 )]
 #[command(version)]
 #[command(author)]
@@ -157,7 +157,7 @@ pub struct Cli {
     #[arg()]
     dir: Option<PathBuf>,
 
-    /// Project type to clean (all, rust, node, python, go, java, cpp, swift, dotnet)
+    /// Project type to clean (all, rust, node, python, go, java, cpp, swift, dotnet, ruby, elixir, deno)
     ///
     /// Restricts cleaning to specific project types. If not specified, all
     /// supported project types will be considered.
@@ -435,6 +435,15 @@ mod tests {
 
         let dotnet_args = Cli::parse_from(["clean-dev-dirs", "--project-type", "dotnet"]);
         assert_eq!(dotnet_args.project_filter(&config), ProjectFilter::DotNet);
+
+        let ruby_args = Cli::parse_from(["clean-dev-dirs", "--project-type", "ruby"]);
+        assert_eq!(ruby_args.project_filter(&config), ProjectFilter::Ruby);
+
+        let elixir_args = Cli::parse_from(["clean-dev-dirs", "--project-type", "elixir"]);
+        assert_eq!(elixir_args.project_filter(&config), ProjectFilter::Elixir);
+
+        let deno_args = Cli::parse_from(["clean-dev-dirs", "--project-type", "deno"]);
+        assert_eq!(deno_args.project_filter(&config), ProjectFilter::Deno);
 
         let all_args = Cli::parse_from(["clean-dev-dirs"]);
         assert_eq!(all_args.project_filter(&config), ProjectFilter::All);
