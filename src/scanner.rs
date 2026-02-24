@@ -152,7 +152,7 @@ impl Scanner {
             .filter_map(|mut project| {
                 if project.build_arts.size == 0 {
                     project.build_arts.size =
-                        self.calculate_build_dir_size(&project.build_arts.path);
+                        Self::calculate_build_dir_size(&project.build_arts.path);
                 }
 
                 if project.build_arts.size > 0 {
@@ -194,31 +194,12 @@ impl Scanner {
     /// This method can be CPU and I/O intensive for large directories with
     /// many files. It's designed to be called in parallel for multiple
     /// directories to maximize throughput.
-    fn calculate_build_dir_size(&self, path: &Path) -> u64 {
+    fn calculate_build_dir_size(path: &Path) -> u64 {
         if !path.exists() {
             return 0;
         }
 
-        let mut total_size = 0u64;
-
-        for entry in WalkDir::new(path) {
-            match entry {
-                Ok(entry) => {
-                    if entry.file_type().is_file()
-                        && let Ok(metadata) = entry.metadata()
-                    {
-                        total_size += metadata.len();
-                    }
-                }
-                Err(e) => {
-                    if self.scan_options.verbose {
-                        eprintln!("Warning: {e}");
-                    }
-                }
-            }
-        }
-
-        total_size
+        crate::utils::calculate_dir_size(path)
     }
 
     /// Detect a Node.js project in the specified directory.
@@ -719,13 +700,12 @@ impl Scanner {
         for &dir_name in &build_dirs {
             let dir_path = path.join(dir_name);
 
-            if dir_path.exists()
-                && dir_path.is_dir()
-                && let Ok(size) = Self::calculate_directory_size(&dir_path)
-                && size > largest_size
-            {
-                largest_size = size;
-                largest_build_dir = Some(dir_path);
+            if dir_path.exists() && dir_path.is_dir() {
+                let size = crate::utils::calculate_dir_size(&dir_path);
+                if size > largest_size {
+                    largest_size = size;
+                    largest_build_dir = Some(dir_path);
+                }
             }
         }
 
@@ -1223,8 +1203,8 @@ impl Scanner {
         // Pick the larger of bin/ and obj/ as the primary build artifact
         let (build_path, precomputed_size) = match (bin_dir.exists(), obj_dir.exists()) {
             (true, true) => {
-                let bin_size = Self::calculate_directory_size(&bin_dir).unwrap_or(0);
-                let obj_size = Self::calculate_directory_size(&obj_dir).unwrap_or(0);
+                let bin_size = crate::utils::calculate_dir_size(&bin_dir);
+                let obj_size = crate::utils::calculate_dir_size(&obj_dir);
                 if obj_size >= bin_size {
                     (obj_dir, obj_size)
                 } else {
@@ -1264,26 +1244,6 @@ impl Scanner {
             }
         }
         None
-    }
-
-    /// Calculate the size of a directory recursively.
-    ///
-    /// This is a helper method used for Python and .NET projects to determine which
-    /// cache directory is the largest and should be the primary cleanup target.
-    fn calculate_directory_size(dir_path: &Path) -> std::io::Result<u64> {
-        let mut total_size = 0;
-
-        for entry in fs::read_dir(dir_path)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                total_size += Self::calculate_directory_size(&path).unwrap_or(0);
-            } else {
-                total_size += entry.metadata()?.len();
-            }
-        }
-
-        Ok(total_size)
     }
 }
 
@@ -1890,15 +1850,13 @@ mod tests {
         let empty_dir = tmp.path().join("empty");
         fs::create_dir_all(&empty_dir).unwrap();
 
-        let scanner = default_scanner(ProjectFilter::All);
-        assert_eq!(scanner.calculate_build_dir_size(&empty_dir), 0);
+        assert_eq!(Scanner::calculate_build_dir_size(&empty_dir), 0);
     }
 
     #[test]
     fn test_calculate_build_dir_size_nonexistent() {
-        let scanner = default_scanner(ProjectFilter::All);
         assert_eq!(
-            scanner.calculate_build_dir_size(Path::new("/nonexistent/path")),
+            Scanner::calculate_build_dir_size(Path::new("/nonexistent/path")),
             0
         );
     }
@@ -1912,8 +1870,7 @@ mod tests {
         create_file(&dir.join("sub/file2.txt"), "world!"); // 6 bytes
         create_file(&dir.join("sub/deep/file3.txt"), "!"); // 1 byte
 
-        let scanner = default_scanner(ProjectFilter::All);
-        let size = scanner.calculate_build_dir_size(&dir);
+        let size = Scanner::calculate_build_dir_size(&dir);
         assert_eq!(size, 12);
     }
 

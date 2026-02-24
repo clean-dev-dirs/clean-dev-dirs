@@ -316,7 +316,7 @@ fn clean_single_project(
     }
 
     // Get the actual size before deletion (might be different from the cached size)
-    let actual_size = calculate_directory_size(build_dir);
+    let actual_size = crate::utils::calculate_dir_size(build_dir);
 
     // Remove the build directory using the chosen strategy
     match removal_strategy {
@@ -328,60 +328,6 @@ fn clean_single_project(
     }
 
     Ok(actual_size)
-}
-
-/// Calculate the total size of a directory and all its contents.
-///
-/// This function recursively traverses a directory tree and sums up the sizes
-/// of all files within it. It handles errors gracefully by skipping files
-/// that cannot be accessed.
-///
-/// # Arguments
-///
-/// * `path` - The directory path to measure
-///
-/// # Returns
-///
-/// The total size of all files in the directory tree, in bytes.
-///
-/// # Error Handling
-///
-/// This function is designed to be robust and will continue processing even
-/// if individual files cannot be accessed. It silently skips:
-/// - Files that cannot be read due to permission issues
-/// - Broken symbolic links
-/// - Files that are deleted while the scan is in progress
-///
-/// # Performance
-///
-/// This function can be I/O intensive for large directories with many files.
-/// It processes files sequentially within each directory but may be called
-/// in parallel for different directories by the cleanup process.
-///
-/// # Examples
-///
-/// ```
-/// # use std::path::Path;
-/// # use crate::calculate_directory_size;
-/// let size = calculate_directory_size(Path::new("/path/to/directory"));
-/// println!("Directory size: {} bytes", size);
-/// ```
-fn calculate_directory_size(path: &std::path::Path) -> u64 {
-    let mut total_size = 0u64;
-
-    for entry in walkdir::WalkDir::new(path) {
-        if let Ok(entry) = entry {
-            if entry.file_type().is_file()
-                && let Ok(metadata) = entry.metadata()
-            {
-                total_size += metadata.len();
-            }
-        } else {
-            // Skip errors for individual files
-        }
-    }
-
-    total_size
 }
 
 impl Default for Cleaner {
