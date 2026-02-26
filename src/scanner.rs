@@ -8,7 +8,10 @@
 use std::{
     fs,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use colored::Colorize;
@@ -130,9 +133,14 @@ impl Scanner {
                     .template("{spinner:.green} {msg}")
                     .unwrap(),
             );
-            pb.set_message("Scanning directories...");
+            pb.set_message("Scanning...");
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
             pb
         };
+
+        let found_count = Arc::new(AtomicUsize::new(0));
+        let progress_clone = progress.clone();
+        let count_clone = Arc::clone(&found_count);
 
         // Find all potential project directories
         let potential_projects: Vec<_> = WalkDir::new(root)
@@ -141,7 +149,14 @@ impl Scanner {
             .filter(|entry| self.should_scan_entry(entry))
             .collect::<Vec<_>>()
             .into_par_iter()
-            .filter_map(|entry| self.detect_project(&entry, &errors))
+            .filter_map(|entry| {
+                let result = self.detect_project(&entry, &errors);
+                if result.is_some() {
+                    let n = count_clone.fetch_add(1, Ordering::Relaxed) + 1;
+                    progress_clone.set_message(format!("Scanning... {n} found"));
+                }
+                result
+            })
             .collect();
 
         progress.finish_with_message("✅ Directory scan complete");
