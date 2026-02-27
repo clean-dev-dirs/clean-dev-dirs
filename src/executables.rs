@@ -66,7 +66,12 @@ pub fn preserve_executables(project: &Project) -> Result<Vec<PreservedExecutable
         | ProjectType::DotNet
         | ProjectType::Ruby
         | ProjectType::Elixir
-        | ProjectType::Deno => Ok(Vec::new()),
+        | ProjectType::Deno
+        | ProjectType::Php
+        | ProjectType::Haskell
+        | ProjectType::Dart
+        | ProjectType::Zig
+        | ProjectType::Scala => Ok(Vec::new()),
     }
 }
 
@@ -263,14 +268,16 @@ mod tests {
     fn create_test_project(tmp: &TempDir, kind: ProjectType) -> Project {
         let root = tmp.path().to_path_buf();
         let build_dir = match kind {
-            ProjectType::Rust | ProjectType::Java => root.join("target"),
+            ProjectType::Rust | ProjectType::Java | ProjectType::Scala => root.join("target"),
             ProjectType::Python => root.join("__pycache__"),
             ProjectType::Node | ProjectType::Deno => root.join("node_modules"),
-            ProjectType::Go | ProjectType::Ruby => root.join("vendor"),
-            ProjectType::Cpp => root.join("build"),
+            ProjectType::Go | ProjectType::Ruby | ProjectType::Php => root.join("vendor"),
+            ProjectType::Cpp | ProjectType::Dart => root.join("build"),
             ProjectType::Swift => root.join(".build"),
             ProjectType::DotNet => root.join("obj"),
             ProjectType::Elixir => root.join("_build"),
+            ProjectType::Haskell => root.join(".stack-work"),
+            ProjectType::Zig => root.join("zig-cache"),
         };
 
         fs::create_dir_all(&build_dir).unwrap();

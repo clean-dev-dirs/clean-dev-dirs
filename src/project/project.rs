@@ -85,6 +85,36 @@ pub enum ProjectType {
     /// file alongside a `vendor/` directory (from `deno vendor`) or a `node_modules/`
     /// directory (Deno 2 npm support without a `package.json`).
     Deno,
+
+    /// PHP project with composer.json and vendor/ directory
+    ///
+    /// PHP projects are identified by the presence of a `composer.json`
+    /// file and a `vendor/` directory (Composer dependencies).
+    Php,
+
+    /// Haskell project with stack.yaml or cabal.project and .stack-work/ or dist-newstyle/
+    ///
+    /// Haskell projects are identified by either Stack (`stack.yaml` + `.stack-work/`)
+    /// or Cabal (`cabal.project` or `*.cabal` + `dist-newstyle/`).
+    Haskell,
+
+    /// Dart/Flutter project with pubspec.yaml and `.dart_tool`/ or build/
+    ///
+    /// Dart/Flutter projects are identified by the presence of a `pubspec.yaml`
+    /// file alongside a `.dart_tool/` directory and/or a `build/` directory.
+    Dart,
+
+    /// Zig project with build.zig and zig-cache/ or zig-out/
+    ///
+    /// Zig projects are identified by the presence of a `build.zig`
+    /// file alongside a `zig-cache/` or `zig-out/` directory.
+    Zig,
+
+    /// Scala project with build.sbt and target/ directory
+    ///
+    /// Scala projects are identified by the presence of a `build.sbt`
+    /// file and a `target/` directory.
+    Scala,
 }
 
 /// Information about build artifacts that can be cleaned.
@@ -227,6 +257,11 @@ impl Display for Project {
             ProjectType::Ruby => "💎",
             ProjectType::Elixir => "💧",
             ProjectType::Deno => "🦕",
+            ProjectType::Php => "🐘",
+            ProjectType::Haskell => "λ",
+            ProjectType::Dart => "🎯",
+            ProjectType::Zig => "⚡",
+            ProjectType::Scala => "🔴",
         };
 
         if let Some(name) = &self.name {
@@ -279,6 +314,11 @@ mod tests {
         assert_eq!(ProjectType::Ruby, ProjectType::Ruby);
         assert_eq!(ProjectType::Elixir, ProjectType::Elixir);
         assert_eq!(ProjectType::Deno, ProjectType::Deno);
+        assert_eq!(ProjectType::Php, ProjectType::Php);
+        assert_eq!(ProjectType::Haskell, ProjectType::Haskell);
+        assert_eq!(ProjectType::Dart, ProjectType::Dart);
+        assert_eq!(ProjectType::Zig, ProjectType::Zig);
+        assert_eq!(ProjectType::Scala, ProjectType::Scala);
 
         assert_ne!(ProjectType::Rust, ProjectType::Node);
         assert_ne!(ProjectType::Node, ProjectType::Python);
@@ -290,6 +330,11 @@ mod tests {
         assert_ne!(ProjectType::DotNet, ProjectType::Ruby);
         assert_ne!(ProjectType::Ruby, ProjectType::Elixir);
         assert_ne!(ProjectType::Elixir, ProjectType::Deno);
+        assert_ne!(ProjectType::Deno, ProjectType::Php);
+        assert_ne!(ProjectType::Php, ProjectType::Haskell);
+        assert_ne!(ProjectType::Haskell, ProjectType::Dart);
+        assert_ne!(ProjectType::Dart, ProjectType::Zig);
+        assert_ne!(ProjectType::Zig, ProjectType::Scala);
     }
 
     #[test]

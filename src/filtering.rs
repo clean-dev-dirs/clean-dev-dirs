@@ -186,20 +186,25 @@ fn sort_by_age(projects: &mut Vec<Project>) {
 /// Map a `ProjectType` to an ordering index for type-based sorting.
 ///
 /// Types are ordered alphabetically by their display name:
-/// C/C++, Deno, .NET, Elixir, Go, Java, Node, Python, Ruby, Rust, Swift
+/// C/C++, Dart, Deno, .NET, Elixir, Go, Haskell, Java, Node, PHP, Python, Ruby, Rust, Scala, Swift, Zig
 const fn type_order(kind: &ProjectType) -> u8 {
     match kind {
         ProjectType::Cpp => 0,
-        ProjectType::Deno => 1,
-        ProjectType::DotNet => 2,
-        ProjectType::Elixir => 3,
-        ProjectType::Go => 4,
-        ProjectType::Java => 5,
-        ProjectType::Node => 6,
-        ProjectType::Python => 7,
-        ProjectType::Ruby => 8,
-        ProjectType::Rust => 9,
-        ProjectType::Swift => 10,
+        ProjectType::Dart => 1,
+        ProjectType::Deno => 2,
+        ProjectType::DotNet => 3,
+        ProjectType::Elixir => 4,
+        ProjectType::Go => 5,
+        ProjectType::Haskell => 6,
+        ProjectType::Java => 7,
+        ProjectType::Node => 8,
+        ProjectType::Php => 9,
+        ProjectType::Python => 10,
+        ProjectType::Ruby => 11,
+        ProjectType::Rust => 12,
+        ProjectType::Scala => 13,
+        ProjectType::Swift => 14,
+        ProjectType::Zig => 15,
     }
 }
 
