@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use clean_dev_dirs::config::file::{FileConfig, expand_tilde};
 use clean_dev_dirs::config::{
@@ -135,6 +135,27 @@ struct ScanningArgs {
     skip: Vec<PathBuf>,
 }
 
+/// Top-level subcommands.
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Inspect or initialise the configuration file
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
+}
+
+/// Subcommands for `config`.
+#[derive(Subcommand)]
+pub enum ConfigCommand {
+    /// Print the effective configuration (file values + defaults for unset keys)
+    Show,
+    /// Write a default config.toml if none exists yet
+    Init,
+    /// Print the path to the config file
+    Path,
+}
+
 /// Main command-line interface structure.
 ///
 /// This struct defines the complete command-line interface for the clean-dev-dirs tool,
@@ -150,6 +171,10 @@ struct ScanningArgs {
 #[command(version)]
 #[command(author)]
 pub struct Cli {
+    /// Subcommand (e.g. `config`)
+    #[command(subcommand)]
+    pub subcommand: Option<Commands>,
+
     /// The directory to search for projects
     ///
     /// Specifies the root directory where the tool will recursively search for

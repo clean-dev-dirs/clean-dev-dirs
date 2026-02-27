@@ -77,7 +77,7 @@ cargo install --path .
 
 ### Requirements
 
-- Rust 2021 edition or later
+- Rust 2024 edition or later
 - Cargo package manager
 
 ## Usage
@@ -322,6 +322,19 @@ You can store default settings in a TOML file so you don't have to repeat the sa
 
 **Location:** `~/.config/clean-dev-dirs/config.toml` (Linux/macOS) or `%APPDATA%\clean-dev-dirs\config.toml` (Windows)
 
+Use the built-in `config` subcommand to manage the file without hunting for the path:
+
+```bash
+# Find out where the config file lives on your platform
+clean-dev-dirs config path
+
+# Write a fully commented-out template (does nothing if the file already exists)
+clean-dev-dirs config init
+
+# Print every setting with its current value or default
+clean-dev-dirs config show
+```
+
 ```toml
 # Default project type filter
 project_type = "rust"
@@ -425,23 +438,26 @@ clean-dev-dirs ~/Projects --permanent --yes
 
 **11. Set up a config file for your usual workflow:**
 ```bash
-mkdir -p ~/.config/clean-dev-dirs
-cat > ~/.config/clean-dev-dirs/config.toml << 'EOF'
-dir = "~/Projects"
+# Generate a commented-out template at the right platform path
+clean-dev-dirs config init
 
-[filtering]
-keep_size = "50MB"
-keep_days = 7
-
-[scanning]
-skip = [".cargo"]
-EOF
-
-# Now just run without flags — defaults come from the config
+# Open it in your editor, uncomment and set what you need, then just run:
 clean-dev-dirs
 ```
 
 ## Command Reference
+
+### Config Subcommand
+
+```
+clean-dev-dirs config <COMMAND>
+```
+
+| Command | Description |
+|---------|-------------|
+| `config path` | Print the platform-specific path to the config file |
+| `config show` | Print every setting with its current value or annotated default |
+| `config init` | Write a fully commented-out template if no config file exists yet |
 
 ### Main Arguments
 
