@@ -72,7 +72,10 @@ pub fn preserve_executables(project: &Project) -> Result<Vec<PreservedExecutable
 
 /// Preserve Rust executables from `target/release/` and `target/debug/`.
 fn preserve_rust_executables(project: &Project) -> Result<Vec<PreservedExecutable>> {
-    let target_dir = &project.build_arts.path;
+    let Some(primary) = project.build_arts.first() else {
+        return Ok(Vec::new());
+    };
+    let target_dir = &primary.path;
     let bin_dir = project.root_path.join("bin");
     let mut preserved = Vec::new();
 
@@ -275,10 +278,10 @@ mod tests {
         Project::new(
             kind,
             root,
-            BuildArtifacts {
+            vec![BuildArtifacts {
                 path: build_dir,
                 size: 0,
-            },
+            }],
             Some("test-project".to_string()),
         )
     }

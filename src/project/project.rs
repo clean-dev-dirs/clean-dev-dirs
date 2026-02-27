@@ -123,11 +123,11 @@ pub struct Project {
     /// For Node.js projects, this is the directory containing `package.json`.
     pub root_path: PathBuf,
 
-    /// The build directory to be cleaned and its metadata
+    /// The build directories to be cleaned and their metadata.
     ///
-    /// Contains information about the `target/` or `node_modules/` directory
-    /// that is a candidate for cleanup, including its path and total size.
-    pub build_arts: BuildArtifacts,
+    /// Most project types have a single artifact directory, but some (e.g. Python,
+    /// .NET, Ruby) can produce several cleanable directories simultaneously.
+    pub build_arts: Vec<BuildArtifacts>,
 
     /// Name of the project extracted from configuration files
     ///
@@ -160,10 +160,10 @@ impl Project {
     /// ```no_run
     /// # use std::path::PathBuf;
     /// # use crate::project::{Project, ProjectType, BuildArtifacts};
-    /// let build_arts = BuildArtifacts {
+    /// let build_arts = vec![BuildArtifacts {
     ///     path: PathBuf::from("/path/to/project/target"),
     ///     size: 1024,
-    /// };
+    /// }];
     ///
     /// let project = Project::new(
     ///     ProjectType::Rust,
@@ -176,7 +176,7 @@ impl Project {
     pub const fn new(
         kind: ProjectType,
         root_path: PathBuf,
-        build_arts: BuildArtifacts,
+        build_arts: Vec<BuildArtifacts>,
         name: Option<String>,
     ) -> Self {
         Self {
@@ -185,6 +185,12 @@ impl Project {
             build_arts,
             name,
         }
+    }
+
+    /// Return the sum of sizes across all build artifact directories.
+    #[must_use]
+    pub fn total_size(&self) -> u64 {
+        self.build_arts.iter().map(|a| a.size).sum()
     }
 }
 
@@ -255,7 +261,7 @@ mod tests {
         Project::new(
             kind,
             PathBuf::from(root_path),
-            create_test_build_artifacts(build_path, size),
+            vec![create_test_build_artifacts(build_path, size)],
             name,
         )
     }
@@ -307,10 +313,10 @@ mod tests {
         assert_eq!(project.kind, ProjectType::Rust);
         assert_eq!(project.root_path, PathBuf::from("/path/to/project"));
         assert_eq!(
-            project.build_arts.path,
+            project.build_arts[0].path,
             PathBuf::from("/path/to/project/target")
         );
-        assert_eq!(project.build_arts.size, 1024);
+        assert_eq!(project.build_arts[0].size, 1024);
         assert_eq!(project.name, Some("test-project".to_string()));
     }
 
@@ -477,8 +483,8 @@ mod tests {
 
         assert_eq!(original.kind, cloned.kind);
         assert_eq!(original.root_path, cloned.root_path);
-        assert_eq!(original.build_arts.path, cloned.build_arts.path);
-        assert_eq!(original.build_arts.size, cloned.build_arts.size);
+        assert_eq!(original.build_arts[0].path, cloned.build_arts[0].path);
+        assert_eq!(original.build_arts[0].size, cloned.build_arts[0].size);
         assert_eq!(original.name, cloned.name);
     }
 
@@ -501,7 +507,7 @@ mod tests {
             Some("empty-project".to_string()),
         );
 
-        assert_eq!(project.build_arts.size, 0);
+        assert_eq!(project.total_size(), 0);
         assert_eq!(format!("{project}"), "🐍 empty-project (/empty/project)");
     }
 
@@ -516,6 +522,6 @@ mod tests {
             Some("huge-project".to_string()),
         );
 
-        assert_eq!(project.build_arts.size, large_size);
+        assert_eq!(project.total_size(), large_size);
     }
 }

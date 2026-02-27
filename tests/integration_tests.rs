@@ -170,8 +170,8 @@ fn test_scanner_finds_rust_projects() {
     for project in &projects {
         assert_eq!(project.kind, ProjectType::Rust);
         assert!(project.name.is_some());
-        assert!(project.build_arts.path.ends_with("target"));
-        assert!(project.build_arts.size > 0);
+        assert!(project.build_arts[0].path.ends_with("target"));
+        assert!(project.total_size() > 0);
     }
 }
 
@@ -198,8 +198,8 @@ fn test_scanner_finds_node_projects() {
     for project in &projects {
         assert_eq!(project.kind, ProjectType::Node);
         assert!(project.name.is_some());
-        assert!(project.build_arts.path.ends_with("node_modules"));
-        assert!(project.build_arts.size > 0);
+        assert!(project.build_arts[0].path.ends_with("node_modules"));
+        assert!(project.total_size() > 0);
     }
 }
 
@@ -225,8 +225,13 @@ fn test_scanner_finds_python_projects() {
 
     for project in &projects {
         assert_eq!(project.kind, ProjectType::Python);
-        assert!(project.build_arts.path.ends_with("__pycache__"));
-        assert!(project.build_arts.size > 0);
+        assert!(
+            project
+                .build_arts
+                .iter()
+                .any(|a| a.path.ends_with("__pycache__"))
+        );
+        assert!(project.total_size() > 0);
     }
 }
 
@@ -253,8 +258,8 @@ fn test_scanner_finds_go_projects() {
     for project in &projects {
         assert_eq!(project.kind, ProjectType::Go);
         assert!(project.name.is_some());
-        assert!(project.build_arts.path.ends_with("vendor"));
-        assert!(project.build_arts.size > 0);
+        assert!(project.build_arts[0].path.ends_with("vendor"));
+        assert!(project.total_size() > 0);
     }
 }
 
@@ -339,7 +344,7 @@ fn test_scanner_calculates_build_directory_sizes() {
     assert_eq!(projects.len(), 1);
 
     let project = &projects[0];
-    assert!(project.build_arts.size > 1000); // Should include our large file
+    assert!(project.total_size() > 1000); // Should include our large file
 }
 
 #[test]

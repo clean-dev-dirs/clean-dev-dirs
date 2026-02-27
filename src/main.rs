@@ -39,7 +39,7 @@ use clean_dev_dirs::{
     config::FileConfig,
     filtering::{filter_projects, sort_projects},
     output::JsonOutput,
-    project::Projects,
+    project::{Project, Projects},
     scanner::Scanner,
 };
 use cli::{Cli, Commands, ConfigCommand};
@@ -115,7 +115,7 @@ fn inner_main() -> Result<()> {
         return print_empty_result(json_mode, "✨ No directories match the specified criteria!");
     }
 
-    let total_size: u64 = filtered_projects.iter().map(|p| p.build_arts.size).sum();
+    let total_size: u64 = filtered_projects.iter().map(Project::total_size).sum();
     let projects: Projects = filtered_projects.into();
 
     if !json_mode {
