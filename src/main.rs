@@ -196,12 +196,10 @@ const CONFIG_TEMPLATE: &str = r#"# clean-dev-dirs configuration
 /// Dispatch a `config` subcommand.
 fn handle_config_command(cmd: &ConfigCommand) -> Result<()> {
     match cmd {
-        ConfigCommand::Path => {
-            match FileConfig::config_path() {
-                Some(path) => println!("{}", path.display()),
-                None => bail!("Could not determine the config directory on this platform"),
-            }
-        }
+        ConfigCommand::Path => match FileConfig::config_path() {
+            Some(path) => println!("{}", path.display()),
+            None => bail!("Could not determine the config directory on this platform"),
+        },
         ConfigCommand::Show => show_config()?,
         ConfigCommand::Init => init_config()?,
     }
@@ -219,7 +217,10 @@ fn show_config() -> Result<()> {
 
     match &path {
         Some(p) if file_exists => println!("Config file: {} (found)", p.display()),
-        Some(p) => println!("Config file: {} (not found - showing defaults)", p.display()),
+        Some(p) => println!(
+            "Config file: {} (not found - showing defaults)",
+            p.display()
+        ),
         None => println!("Config file: (cannot determine path on this platform)"),
     }
 
@@ -231,7 +232,10 @@ fn show_config() -> Result<()> {
 /// Format a [`FileConfig`] as a human-readable table, showing defaults for `None` fields.
 fn format_config(config: &clean_dev_dirs::config::file::FileConfig) -> String {
     fn show_str(val: Option<&str>, default: &str) -> String {
-        val.map_or_else(|| format!("\"{default}\"  (default)"), |v| format!("\"{v}\""))
+        val.map_or_else(
+            || format!("\"{default}\"  (default)"),
+            |v| format!("\"{v}\""),
+        )
     }
     fn show_bool(val: Option<bool>, default: bool) -> String {
         val.map_or_else(|| format!("{default}  (default)"), |v| v.to_string())
@@ -245,10 +249,7 @@ fn format_config(config: &clean_dev_dirs::config::file::FileConfig) -> String {
     fn show_paths(val: Option<&[std::path::PathBuf]>) -> String {
         match val {
             Some(v) if !v.is_empty() => {
-                let items: Vec<String> = v
-                    .iter()
-                    .map(|p| format!("\"{}\"", p.display()))
-                    .collect();
+                let items: Vec<String> = v.iter().map(|p| format!("\"{}\"", p.display())).collect();
                 format!("[{}]", items.join(", "))
             }
             _ => "[]  (default)".to_string(),
@@ -286,10 +287,11 @@ use_trash        = {use_trash}",
         dir = dir_str,
         keep_size = show_str(config.filtering.keep_size.as_deref(), "0"),
         keep_days = show_u32(config.filtering.keep_days, 0),
-        sort = config.filtering.sort.as_deref().map_or_else(
-            || "(none)  (default)".to_string(),
-            |v| format!("\"{v}\""),
-        ),
+        sort = config
+            .filtering
+            .sort
+            .as_deref()
+            .map_or_else(|| "(none)  (default)".to_string(), |v| format!("\"{v}\""),),
         reverse = show_bool(config.filtering.reverse, false),
         threads = show_usize(config.scanning.threads, "0 (all cores)"),
         verbose = show_bool(config.scanning.verbose, false),
@@ -323,9 +325,8 @@ fn init_config() -> Result<()> {
         })?;
     }
 
-    std::fs::write(&path, CONFIG_TEMPLATE).map_err(|e| {
-        anyhow::anyhow!("Failed to write config file {}: {e}", path.display())
-    })?;
+    std::fs::write(&path, CONFIG_TEMPLATE)
+        .map_err(|e| anyhow::anyhow!("Failed to write config file {}: {e}", path.display()))?;
 
     println!("Config file written to: {}", path.display());
     Ok(())
