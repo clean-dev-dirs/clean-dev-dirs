@@ -19,6 +19,9 @@ pub struct ScanOptions {
 
     /// List of directory patterns to skip during scanning
     pub skip: Vec<PathBuf>,
+
+    /// Maximum directory depth to scan (None = unlimited)
+    pub max_depth: Option<usize>,
 }
 
 #[cfg(test)]
@@ -31,6 +34,7 @@ mod tests {
             verbose: true,
             threads: 4,
             skip: vec![PathBuf::from("test")],
+            max_depth: None,
         };
 
         assert!(scan_opts.verbose);
@@ -44,6 +48,7 @@ mod tests {
             verbose: true,
             threads: 4,
             skip: vec![PathBuf::from("test")],
+            max_depth: None,
         };
         let cloned = original.clone();
 
