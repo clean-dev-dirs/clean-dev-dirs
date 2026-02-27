@@ -398,6 +398,11 @@ impl Scanner {
         let target_dir = path.join("target");
 
         if cargo_toml.exists() && target_dir.exists() {
+            // Skip workspace members — their artifacts are managed by the workspace root.
+            if Self::is_inside_cargo_workspace(path) {
+                return None;
+            }
+
             let name = self.extract_rust_project_name(&cargo_toml, errors);
 
             let build_arts = BuildArtifacts {
@@ -414,6 +419,24 @@ impl Scanner {
         }
 
         None
+    }
+
+    /// Return true if the given `Cargo.toml` declares a `[workspace]` section.
+    fn is_cargo_workspace_root(cargo_toml: &Path) -> bool {
+        fs::read_to_string(cargo_toml)
+            .map(|content| content.lines().any(|line| line.trim() == "[workspace]"))
+            .unwrap_or(false)
+    }
+
+    /// Return true if `path` is inside a Rust workspace (an ancestor directory
+    /// contains a `Cargo.toml` that declares `[workspace]`).
+    fn is_inside_cargo_workspace(path: &Path) -> bool {
+        path.ancestors()
+            .skip(1) // skip `path` itself
+            .any(|ancestor| {
+                let cargo_toml = ancestor.join("Cargo.toml");
+                cargo_toml.exists() && Self::is_cargo_workspace_root(&cargo_toml)
+            })
     }
 
     /// Extract the project name from a Cargo.toml file.
@@ -2385,5 +2408,81 @@ mod tests {
     #[test]
     fn test_build_directory_is_excluded() {
         assert!(Scanner::is_excluded_directory(Path::new("/some/_build")));
+    }
+
+    // ── Rust workspace awareness tests ─────────────────────────────────
+
+    #[test]
+    fn test_is_cargo_workspace_root() {
+        let tmp = TempDir::new().unwrap();
+        let cargo_toml = tmp.path().join("Cargo.toml");
+
+        // A workspace root must contain a bare `[workspace]` section header.
+        create_file(
+            &cargo_toml,
+            "[workspace]\nmembers = [\"crate-a\", \"crate-b\"]\n",
+        );
+        assert!(Scanner::is_cargo_workspace_root(&cargo_toml));
+
+        // A regular package Cargo.toml is not a workspace root.
+        create_file(
+            &cargo_toml,
+            "[package]\nname = \"my-crate\"\nversion = \"0.1.0\"\n",
+        );
+        assert!(!Scanner::is_cargo_workspace_root(&cargo_toml));
+
+        // A non-existent file returns false.
+        assert!(!Scanner::is_cargo_workspace_root(Path::new(
+            "/nonexistent/Cargo.toml"
+        )));
+    }
+
+    #[test]
+    fn test_workspace_root_detected() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        // Workspace root: has [workspace] in Cargo.toml and a target/ dir with content.
+        let workspace = base.join("my-workspace");
+        create_file(
+            &workspace.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crate-a\"]\n\n[package]\nname = \"my-workspace\"\nversion = \"0.1.0\"\n",
+        );
+        create_file(&workspace.join("target/dummy"), "content");
+
+        let scanner = default_scanner(ProjectFilter::Rust);
+        let projects = scanner.scan_directory(base);
+
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].root_path, workspace);
+    }
+
+    #[test]
+    fn test_workspace_member_with_own_target_skipped() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        // Workspace root with content in target/.
+        let workspace = base.join("my-workspace");
+        create_file(
+            &workspace.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crate-a\"]\n\n[package]\nname = \"my-workspace\"\nversion = \"0.1.0\"\n",
+        );
+        create_file(&workspace.join("target/dummy"), "content");
+
+        // Workspace member that also happens to have its own target/ directory.
+        let member = workspace.join("crate-a");
+        create_file(
+            &member.join("Cargo.toml"),
+            "[package]\nname = \"crate-a\"\nversion = \"0.1.0\"\n",
+        );
+        create_file(&member.join("target/dummy"), "content");
+
+        let scanner = default_scanner(ProjectFilter::Rust);
+        let projects = scanner.scan_directory(base);
+
+        // Only the workspace root should be reported; the member must be skipped.
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].root_path, workspace);
     }
 }

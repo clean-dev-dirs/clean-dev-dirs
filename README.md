@@ -534,7 +534,7 @@ clean-dev-dirs --keep-size 500000   # 500,000 bytes
 The tool automatically detects development projects by looking for characteristic files and directories:
 
 ### Rust Projects
-- **Detection criteria**: Both `Cargo.toml` and `target/` directory must exist
+- **Detection criteria**: Both `Cargo.toml` and `target/` directory must exist, and the directory is not a workspace member (workspace members share the root `target/` and are skipped)
 - **Cleans**: `target/` directory
 - **Name extraction**: From `[package] name` in `Cargo.toml`
 
