@@ -176,7 +176,7 @@ impl Cleaner {
                 Err(e) => {
                     errors.lock().unwrap().push(format!(
                         "Failed to clean {}: {e}",
-                        project.build_arts.path.display()
+                        project.root_path.display()
                     ));
                 }
             }
@@ -284,12 +284,6 @@ fn clean_single_project(
     keep_executables: bool,
     removal_strategy: RemovalStrategy,
 ) -> Result<u64> {
-    let build_dir = &project.build_arts.path;
-
-    if !build_dir.exists() {
-        return Ok(0);
-    }
-
     // Preserve executables before deletion if requested
     if keep_executables {
         match executables::preserve_executables(project) {
@@ -315,19 +309,29 @@ fn clean_single_project(
         }
     }
 
-    // Get the actual size before deletion (might be different from the cached size)
-    let actual_size = crate::utils::calculate_dir_size(build_dir);
+    let mut total_freed = 0u64;
 
-    // Remove the build directory using the chosen strategy
-    match removal_strategy {
-        RemovalStrategy::Permanent => fs::remove_dir_all(build_dir)?,
-        RemovalStrategy::Trash => {
-            trash::delete(build_dir)
-                .map_err(|e| anyhow::anyhow!("failed to move to trash: {e}"))?;
+    for artifact in &project.build_arts {
+        let build_dir = &artifact.path;
+
+        if !build_dir.exists() {
+            continue;
+        }
+
+        // Get the actual size before deletion (might be different from the cached size)
+        total_freed += crate::utils::calculate_dir_size(build_dir);
+
+        // Remove the build directory using the chosen strategy
+        match removal_strategy {
+            RemovalStrategy::Permanent => fs::remove_dir_all(build_dir)?,
+            RemovalStrategy::Trash => {
+                trash::delete(build_dir)
+                    .map_err(|e| anyhow::anyhow!("failed to move to trash: {e}"))?;
+            }
         }
     }
 
-    Ok(actual_size)
+    Ok(total_freed)
 }
 
 impl Default for Cleaner {

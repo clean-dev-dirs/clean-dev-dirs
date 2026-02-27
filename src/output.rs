@@ -43,10 +43,10 @@ pub struct JsonProjectEntry {
     /// Absolute path to the project root directory.
     pub root_path: String,
 
-    /// Absolute path to the build artifacts directory.
-    pub build_artifacts_path: String,
+    /// Absolute paths to the build artifacts directories.
+    pub build_artifacts_paths: Vec<String>,
 
-    /// Size of the build artifacts in bytes.
+    /// Total size of the build artifacts in bytes.
     pub build_artifacts_size: u64,
 
     /// Human-readable formatted size (e.g. `"1.23 GB"`).
@@ -138,13 +138,18 @@ impl JsonProjectEntry {
     /// Convert a `Project` into a `JsonProjectEntry`.
     #[must_use]
     pub fn from_project(project: &Project) -> Self {
+        let total = project.total_size();
         Self {
             name: project.name.clone(),
             project_type: project.kind.clone(),
             root_path: project.root_path.display().to_string(),
-            build_artifacts_path: project.build_arts.path.display().to_string(),
-            build_artifacts_size: project.build_arts.size,
-            build_artifacts_size_formatted: format_size(project.build_arts.size, DECIMAL),
+            build_artifacts_paths: project
+                .build_arts
+                .iter()
+                .map(|a| a.path.display().to_string())
+                .collect(),
+            build_artifacts_size: total,
+            build_artifacts_size_formatted: format_size(total, DECIMAL),
         }
     }
 }
@@ -172,10 +177,10 @@ impl JsonSummary {
 
             let entry = by_type.entry(key.to_string()).or_insert((0, 0));
             entry.0 += 1;
-            entry.1 += project.build_arts.size;
+            entry.1 += project.total_size();
         }
 
-        let total_size: u64 = projects.iter().map(|p| p.build_arts.size).sum();
+        let total_size: u64 = projects.iter().map(Project::total_size).sum();
 
         Self {
             total_projects: projects.len(),

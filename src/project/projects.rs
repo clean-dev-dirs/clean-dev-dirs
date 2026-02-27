@@ -127,7 +127,7 @@ impl Projects {
     /// ```
     #[must_use]
     pub fn get_total_size(&self) -> u64 {
-        self.0.iter().map(|p| p.build_arts.size).sum()
+        self.0.iter().map(Project::total_size).sum()
     }
 
     /// Present an interactive selection interface for choosing projects to clean.
@@ -173,7 +173,7 @@ impl Projects {
                 format!(
                     "{icon} {} ({})",
                     p.root_path.display(),
-                    format_size(p.build_arts.size, DECIMAL)
+                    format_size(p.total_size(), DECIMAL)
                 )
             })
             .collect();
@@ -195,7 +195,7 @@ impl Projects {
                         let expected = format!(
                             "{icon} {} ({})",
                             p.root_path.display(),
-                            format_size(p.build_arts.size, DECIMAL)
+                            format_size(p.total_size(), DECIMAL)
                         );
                         &expected == selected_item
                     })
@@ -301,7 +301,7 @@ impl Projects {
         for (kind, icon, label) in type_entries {
             let (count, size) = self.0.iter().fold((0usize, 0u64), |(c, s), p| {
                 if &p.kind == kind {
-                    (c + 1, s + p.build_arts.size)
+                    (c + 1, s + p.total_size())
                 } else {
                     (c, s)
                 }

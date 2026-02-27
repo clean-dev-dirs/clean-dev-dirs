@@ -250,7 +250,7 @@ When `--json` is active, all human-readable output (colors, progress bars, emoji
       "name": "my-rust-app",
       "type": "rust",
       "root_path": "/home/user/projects/rust-app",
-      "build_artifacts_path": "/home/user/projects/rust-app/target",
+      "build_artifacts_paths": ["/home/user/projects/rust-app/target"],
       "build_artifacts_size": 2300000000,
       "build_artifacts_size_formatted": "2.30 GB"
     },
@@ -258,7 +258,7 @@ When `--json` is active, all human-readable output (colors, progress bars, emoji
       "name": "web-frontend",
       "type": "node",
       "root_path": "/home/user/projects/web-app",
-      "build_artifacts_path": "/home/user/projects/web-app/node_modules",
+      "build_artifacts_paths": ["/home/user/projects/web-app/node_modules"],
       "build_artifacts_size": 856000000,
       "build_artifacts_size_formatted": "856.00 MB"
     }
@@ -547,12 +547,13 @@ The tool automatically detects development projects by looking for characteristi
 - **Detection criteria**:
   - At least one config file: `requirements.txt`, `setup.py`, `pyproject.toml`, `setup.cfg`, `Pipfile`, `pipenv.lock`, `poetry.lock`
   - At least one cache/build directory exists
-- **Cleans**: The largest cache/build directory among:
+- **Cleans**: All present cache/build directories:
   - `__pycache__`
   - `.pytest_cache`
   - `venv` / `.venv`
   - `build` / `dist`
   - `.eggs` / `.tox` / `.coverage`
+  - Any `*.egg-info` directories found in the project root
 - **Name extraction**: From `pyproject.toml` (project name or tool.poetry name) or `setup.py`
 
 ### Go Projects
@@ -579,12 +580,12 @@ The tool automatically detects development projects by looking for characteristi
 
 ### .NET/C# Projects
 - **Detection criteria**: At least one `.csproj` file + `bin/` and/or `obj/` directories
-- **Cleans**: The larger of `bin/` or `obj/` directories
+- **Cleans**: Both `bin/` and `obj/` directories when present
 - **Name extraction**: From the `.csproj` filename
 
 ### Ruby Projects
 - **Detection criteria**: Both `Gemfile` and `.bundle/` or `vendor/bundle/` directory must exist
-- **Cleans**: The larger of `.bundle/` or `vendor/bundle/` directories
+- **Cleans**: Both `.bundle/` and `vendor/bundle/` directories when present
 - **Name extraction**: From the `name` field in a `.gemspec` file, or falls back to directory name
 
 ### Elixir Projects
@@ -702,10 +703,10 @@ fn detect_your_language_project(&self, path: &Path, errors: &Arc<Mutex<Vec<Strin
     if config_file.exists() && build_dir.exists() {
         let name = self.extract_your_language_project_name(&config_file, errors);
 
-        let build_arts = BuildArtifacts {
+        let build_arts = vec![BuildArtifacts {
             path: build_dir,
             size: 0, // Will be calculated later
-        };
+        }];
 
         return Some(Project::new(
             ProjectType::YourLanguage,

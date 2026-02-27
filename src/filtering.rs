@@ -6,6 +6,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use rayon::prelude::*;
+use std::cmp::Reverse;
 use std::fs;
 use std::time::SystemTime;
 
@@ -66,8 +67,8 @@ pub fn filter_projects(
 }
 
 /// Check if a project meets the size criteria.
-const fn meets_size_criteria(project: &Project, min_size: u64) -> bool {
-    project.build_arts.size >= min_size
+fn meets_size_criteria(project: &Project, min_size: u64) -> bool {
+    project.total_size() >= min_size
 }
 
 /// Check if a project meets the time criteria.
@@ -81,7 +82,10 @@ fn meets_time_criteria(project: &Project, keep_days: u32) -> bool {
 
 /// Check if a project is old enough based on its modification time.
 fn is_project_old_enough(project: &Project, keep_days: u32) -> bool {
-    let Result::Ok(metadata) = fs::metadata(&project.build_arts.path) else {
+    let Some(primary) = project.build_arts.first() else {
+        return true;
+    };
+    let Result::Ok(metadata) = fs::metadata(&primary.path) else {
         return true; // If we can't read metadata, don't filter it out
     };
 
@@ -134,7 +138,7 @@ pub fn sort_projects(projects: &mut Vec<Project>, sort_opts: &SortOptions) {
 
     match criteria {
         SortCriteria::Size => {
-            projects.sort_by(|a, b| b.build_arts.size.cmp(&a.build_arts.size));
+            projects.sort_by_key(|p| Reverse(p.total_size()));
         }
         SortCriteria::Age => {
             sort_by_age(projects);
@@ -164,8 +168,11 @@ fn sort_by_age(projects: &mut Vec<Project>) {
     let mut decorated: Vec<(Project, SystemTime)> = projects
         .drain(..)
         .map(|p| {
-            let mtime = fs::metadata(&p.build_arts.path)
-                .and_then(|m| m.modified())
+            let mtime = p
+                .build_arts
+                .first()
+                .and_then(|a| fs::metadata(&a.path).ok())
+                .and_then(|m| m.modified().ok())
                 .unwrap_or(SystemTime::UNIX_EPOCH);
             (p, mtime)
         })
@@ -213,10 +220,10 @@ mod tests {
         Project::new(
             kind,
             PathBuf::from(root_path),
-            BuildArtifacts {
+            vec![BuildArtifacts {
                 path: PathBuf::from(build_path),
                 size,
-            },
+            }],
             name,
         )
     }
@@ -284,9 +291,9 @@ mod tests {
         };
         sort_projects(&mut projects, &sort_opts);
 
-        assert_eq!(projects[0].build_arts.size, 300);
-        assert_eq!(projects[1].build_arts.size, 200);
-        assert_eq!(projects[2].build_arts.size, 100);
+        assert_eq!(projects[0].total_size(), 300);
+        assert_eq!(projects[1].total_size(), 200);
+        assert_eq!(projects[2].total_size(), 100);
     }
 
     #[test]
@@ -321,9 +328,9 @@ mod tests {
         };
         sort_projects(&mut projects, &sort_opts);
 
-        assert_eq!(projects[0].build_arts.size, 100);
-        assert_eq!(projects[1].build_arts.size, 200);
-        assert_eq!(projects[2].build_arts.size, 300);
+        assert_eq!(projects[0].total_size(), 100);
+        assert_eq!(projects[1].total_size(), 200);
+        assert_eq!(projects[2].total_size(), 300);
     }
 
     #[test]

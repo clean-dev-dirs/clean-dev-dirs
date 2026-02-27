@@ -165,12 +165,13 @@ impl Scanner {
         let projects_with_sizes: Vec<_> = potential_projects
             .into_par_iter()
             .filter_map(|mut project| {
-                if project.build_arts.size == 0 {
-                    project.build_arts.size =
-                        Self::calculate_build_dir_size(&project.build_arts.path);
+                for artifact in &mut project.build_arts {
+                    if artifact.size == 0 {
+                        artifact.size = Self::calculate_build_dir_size(&artifact.path);
+                    }
                 }
 
-                if project.build_arts.size > 0 {
+                if project.total_size() > 0 {
                     Some(project)
                 } else {
                     None
@@ -249,10 +250,10 @@ impl Scanner {
         if package_json.exists() && node_modules.exists() {
             let name = self.extract_node_project_name(&package_json, errors);
 
-            let build_arts = BuildArtifacts {
+            let build_arts = vec![BuildArtifacts {
                 path: path.join("node_modules"),
                 size: 0, // Will be calculated later
-            };
+            }];
 
             return Some(Project::new(
                 ProjectType::Node,
@@ -405,10 +406,10 @@ impl Scanner {
 
             let name = self.extract_rust_project_name(&cargo_toml, errors);
 
-            let build_arts = BuildArtifacts {
+            let build_arts = vec![BuildArtifacts {
                 path: path.join("target"),
                 size: 0, // Will be calculated later
-            };
+            }];
 
             return Some(Project::new(
                 ProjectType::Rust,
@@ -751,39 +752,54 @@ impl Scanner {
             return None;
         }
 
-        // Find the largest cache/build directory that exists
-        let mut largest_build_dir = None;
-        let mut largest_size = 0;
+        // Collect all existing cache/build directories.
+        let mut build_arts: Vec<BuildArtifacts> = build_dirs
+            .iter()
+            .filter_map(|&dir_name| {
+                let dir_path = path.join(dir_name);
+                if dir_path.exists() && dir_path.is_dir() {
+                    let size = crate::utils::calculate_dir_size(&dir_path);
+                    Some(BuildArtifacts {
+                        path: dir_path,
+                        size,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        for &dir_name in &build_dirs {
-            let dir_path = path.join(dir_name);
-
-            if dir_path.exists() && dir_path.is_dir() {
-                let size = crate::utils::calculate_dir_size(&dir_path);
-                if size > largest_size {
-                    largest_size = size;
-                    largest_build_dir = Some(dir_path);
+        // Also collect any *.egg-info directories present in the project root.
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                let entry_path = entry.path();
+                if entry_path.is_dir()
+                    && entry_path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.ends_with(".egg-info"))
+                {
+                    let size = crate::utils::calculate_dir_size(&entry_path);
+                    build_arts.push(BuildArtifacts {
+                        path: entry_path,
+                        size,
+                    });
                 }
             }
         }
 
-        if let Some(build_path) = largest_build_dir {
-            let name = self.extract_python_project_name(path, errors);
-
-            let build_arts = BuildArtifacts {
-                path: build_path,
-                size: largest_size,
-            };
-
-            return Some(Project::new(
-                ProjectType::Python,
-                path.to_path_buf(),
-                build_arts,
-                name,
-            ));
+        if build_arts.is_empty() {
+            return None;
         }
 
-        None
+        let name = self.extract_python_project_name(path, errors);
+
+        Some(Project::new(
+            ProjectType::Python,
+            path.to_path_buf(),
+            build_arts,
+            name,
+        ))
     }
 
     /// Detect a Go project in the specified directory.
@@ -814,10 +830,10 @@ impl Scanner {
         if go_mod.exists() && vendor_dir.exists() {
             let name = self.extract_go_project_name(&go_mod, errors);
 
-            let build_arts = BuildArtifacts {
+            let build_arts = vec![BuildArtifacts {
                 path: path.join("vendor"),
                 size: 0, // Will be calculated later
-            };
+            }];
 
             return Some(Project::new(
                 ProjectType::Go,
@@ -1017,10 +1033,10 @@ impl Scanner {
         if pom_xml.exists() && target_dir.exists() {
             let name = self.extract_java_maven_project_name(&pom_xml, errors);
 
-            let build_arts = BuildArtifacts {
+            let build_arts = vec![BuildArtifacts {
                 path: target_dir,
                 size: 0,
-            };
+            }];
 
             return Some(Project::new(
                 ProjectType::Java,
@@ -1038,10 +1054,10 @@ impl Scanner {
         if has_gradle && build_dir.exists() {
             let name = self.extract_java_gradle_project_name(path, errors);
 
-            let build_arts = BuildArtifacts {
+            let build_arts = vec![BuildArtifacts {
                 path: build_dir,
                 size: 0,
-            };
+            }];
 
             return Some(Project::new(
                 ProjectType::Java,
@@ -1134,10 +1150,10 @@ impl Scanner {
                 Self::fallback_to_directory_name(path)
             };
 
-            let build_arts = BuildArtifacts {
+            let build_arts = vec![BuildArtifacts {
                 path: build_dir,
                 size: 0,
-            };
+            }];
 
             return Some(Project::new(
                 ProjectType::Cpp,
@@ -1202,10 +1218,10 @@ impl Scanner {
         if package_swift.exists() && build_dir.exists() {
             let name = self.extract_swift_project_name(&package_swift, errors);
 
-            let build_arts = BuildArtifacts {
+            let build_arts = vec![BuildArtifacts {
                 path: build_dir,
                 size: 0,
-            };
+            }];
 
             return Some(Project::new(
                 ProjectType::Swift,
@@ -1258,19 +1274,30 @@ impl Scanner {
 
         let csproj_file = Self::find_file_with_extension(path, "csproj")?;
 
-        // Pick the larger of bin/ and obj/ as the primary build artifact
-        let (build_path, precomputed_size) = match (bin_dir.exists(), obj_dir.exists()) {
+        // Collect bin/ and obj/ as separate build artifacts (both when present).
+        let build_arts: Vec<BuildArtifacts> = match (bin_dir.exists(), obj_dir.exists()) {
             (true, true) => {
                 let bin_size = crate::utils::calculate_dir_size(&bin_dir);
                 let obj_size = crate::utils::calculate_dir_size(&obj_dir);
-                if obj_size >= bin_size {
-                    (obj_dir, obj_size)
-                } else {
-                    (bin_dir, bin_size)
-                }
+                vec![
+                    BuildArtifacts {
+                        path: bin_dir,
+                        size: bin_size,
+                    },
+                    BuildArtifacts {
+                        path: obj_dir,
+                        size: obj_size,
+                    },
+                ]
             }
-            (true, false) => (bin_dir, 0),
-            (false, true) => (obj_dir, 0),
+            (true, false) => vec![BuildArtifacts {
+                path: bin_dir,
+                size: 0,
+            }],
+            (false, true) => vec![BuildArtifacts {
+                path: obj_dir,
+                size: 0,
+            }],
             (false, false) => return None,
         };
 
@@ -1278,11 +1305,6 @@ impl Scanner {
             .file_stem()
             .and_then(|s| s.to_str())
             .map(std::string::ToString::to_string);
-
-        let build_arts = BuildArtifacts {
-            path: build_path,
-            size: precomputed_size,
-        };
 
         Some(Project::new(
             ProjectType::DotNet,
@@ -1337,10 +1359,10 @@ impl Scanner {
             return Some(Project::new(
                 ProjectType::Deno,
                 path.to_path_buf(),
-                BuildArtifacts {
+                vec![BuildArtifacts {
                     path: vendor_dir,
                     size: 0,
-                },
+                }],
                 name,
             ));
         }
@@ -1352,10 +1374,10 @@ impl Scanner {
             return Some(Project::new(
                 ProjectType::Deno,
                 path.to_path_buf(),
-                BuildArtifacts {
+                vec![BuildArtifacts {
                     path: node_modules,
                     size: 0,
-                },
+                }],
                 name,
             ));
         }
@@ -1410,31 +1432,39 @@ impl Scanner {
         let bundle_dir = path.join(".bundle");
         let vendor_bundle_dir = path.join("vendor").join("bundle");
 
-        let (build_path, precomputed_size) = match (bundle_dir.exists(), vendor_bundle_dir.exists())
-        {
-            (true, true) => {
-                let bundle_size = crate::utils::calculate_dir_size(&bundle_dir);
-                let vendor_size = crate::utils::calculate_dir_size(&vendor_bundle_dir);
-                if vendor_size >= bundle_size {
-                    (vendor_bundle_dir, vendor_size)
-                } else {
-                    (bundle_dir, bundle_size)
+        let build_arts: Vec<BuildArtifacts> =
+            match (bundle_dir.exists(), vendor_bundle_dir.exists()) {
+                (true, true) => {
+                    let bundle_size = crate::utils::calculate_dir_size(&bundle_dir);
+                    let vendor_size = crate::utils::calculate_dir_size(&vendor_bundle_dir);
+                    vec![
+                        BuildArtifacts {
+                            path: bundle_dir,
+                            size: bundle_size,
+                        },
+                        BuildArtifacts {
+                            path: vendor_bundle_dir,
+                            size: vendor_size,
+                        },
+                    ]
                 }
-            }
-            (true, false) => (bundle_dir, 0),
-            (false, true) => (vendor_bundle_dir, 0),
-            (false, false) => return None,
-        };
+                (true, false) => vec![BuildArtifacts {
+                    path: bundle_dir,
+                    size: 0,
+                }],
+                (false, true) => vec![BuildArtifacts {
+                    path: vendor_bundle_dir,
+                    size: 0,
+                }],
+                (false, false) => return None,
+            };
 
         let name = self.extract_ruby_project_name(path, errors);
 
         Some(Project::new(
             ProjectType::Ruby,
             path.to_path_buf(),
-            BuildArtifacts {
-                path: build_path,
-                size: precomputed_size,
-            },
+            build_arts,
             name,
         ))
     }
@@ -1493,10 +1523,10 @@ impl Scanner {
             return Some(Project::new(
                 ProjectType::Elixir,
                 path.to_path_buf(),
-                BuildArtifacts {
+                vec![BuildArtifacts {
                     path: build_dir,
                     size: 0,
-                },
+                }],
                 name,
             ));
         }
