@@ -160,6 +160,7 @@ fn test_scanner_finds_rust_projects() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Rust);
@@ -188,6 +189,7 @@ fn test_scanner_finds_node_projects() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Node);
@@ -216,6 +218,7 @@ fn test_scanner_finds_python_projects() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Python);
@@ -248,6 +251,7 @@ fn test_scanner_finds_go_projects() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Go);
@@ -278,6 +282,7 @@ fn test_scanner_finds_all_project_types() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::All);
@@ -310,6 +315,7 @@ fn test_scanner_skips_directories() {
         verbose: false,
         threads: 1,
         skip: vec![PathBuf::from("skip-me"), PathBuf::from("target")],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Rust);
@@ -336,6 +342,7 @@ fn test_scanner_calculates_build_directory_sizes() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Rust);
@@ -364,6 +371,7 @@ fn test_scanner_handles_empty_directories() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Rust);
@@ -390,6 +398,7 @@ fn test_scanner_handles_missing_build_directories() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Rust);
@@ -413,6 +422,7 @@ fn test_scanner_nested_projects() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::All);
@@ -449,6 +459,7 @@ fn test_scanner_with_multiple_threads() {
         verbose: false,
         threads: 4, // Use multiple threads
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::All);
@@ -509,6 +520,7 @@ fn test_scanner_with_spaces_in_directory_names() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::All);
@@ -535,6 +547,7 @@ fn test_scanner_with_unicode_directory_names() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::All);
@@ -562,6 +575,7 @@ fn test_scanner_with_deeply_nested_directories() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Rust);
@@ -585,6 +599,7 @@ fn test_scanner_with_special_characters_in_paths() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::All);
@@ -621,6 +636,7 @@ fn test_scanner_hidden_directory_itself_not_detected_unix() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Rust);
@@ -647,6 +663,7 @@ fn test_scanner_traverses_into_hidden_dirs_finds_visible_children_unix() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Rust);
@@ -678,6 +695,7 @@ fn test_executable_preservation_integration_unix() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Rust);
@@ -714,6 +732,7 @@ fn test_scanner_symlink_handling_unix() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Rust);
@@ -744,6 +763,7 @@ fn test_executable_preservation_integration_windows() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Rust);
@@ -781,6 +801,7 @@ fn test_scanner_with_windows_long_paths() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Rust);
@@ -810,6 +831,7 @@ fn test_python_whl_preservation_cross_platform() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Python);
@@ -841,6 +863,7 @@ fn test_python_so_preservation_unix() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Python);
@@ -871,6 +894,7 @@ fn test_python_pyd_preservation_windows() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner = Scanner::new(scan_options, ProjectFilter::Python);
@@ -960,11 +984,13 @@ fn test_parallel_and_single_thread_produce_same_results() {
         verbose: false,
         threads: 1,
         skip: vec![],
+        max_depth: None,
     };
     let multi_thread = ScanOptions {
         verbose: false,
         threads: 4,
         skip: vec![],
+        max_depth: None,
     };
 
     let scanner1 = Scanner::new(single_thread, ProjectFilter::All);

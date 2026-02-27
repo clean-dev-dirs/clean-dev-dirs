@@ -309,6 +309,9 @@ clean-dev-dirs --verbose
 # Skip specific directories during scanning
 clean-dev-dirs --skip node_modules --skip .git
 
+# Limit how deep into the directory tree the scanner goes
+clean-dev-dirs --max-depth 3
+
 # Non-interactive mode (auto-confirm)
 clean-dev-dirs --yes
 
@@ -353,6 +356,7 @@ threads = 4
 verbose = true
 skip = [".cargo", "vendor"]
 ignore = [".git"]
+max_depth = 5   # optional; omit for unlimited depth
 
 [execution]
 keep_executables = true
@@ -510,6 +514,7 @@ Default sort directions: `size` largest first, `age` oldest first, `name` A-Z, `
 | `--threads` | `-t` | Number of threads for directory scanning (default: CPU cores) |
 | `--verbose` | `-v` | Show access errors during scanning |
 | `--skip` | | Directories to skip during scanning (can be specified multiple times) |
+| `--max-depth` | | Maximum directory depth to scan (default: unlimited) |
 
 ## Size Formats
 

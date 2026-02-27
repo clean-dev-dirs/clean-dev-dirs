@@ -26,6 +26,7 @@
 //! verbose = true
 //! skip = [".cargo", "vendor"]
 //! ignore = [".git"]
+//! max_depth = 5
 //!
 //! [execution]
 //! keep_executables = true
@@ -93,6 +94,9 @@ pub struct FileScanConfig {
 
     /// Directories to ignore during scanning
     pub ignore: Option<Vec<PathBuf>>,
+
+    /// Maximum directory depth to scan
+    pub max_depth: Option<usize>,
 }
 
 /// Execution options from the configuration file.

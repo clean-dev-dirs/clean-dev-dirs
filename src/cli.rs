@@ -133,6 +133,14 @@ struct ScanningArgs {
     /// may still be processed. Can be specified multiple times.
     #[arg(long, action = clap::ArgAction::Append)]
     skip: Vec<PathBuf>,
+
+    /// Maximum directory depth to scan
+    ///
+    /// Limits how deep into the directory tree the scanner will traverse.
+    /// A value of 1 scans only the immediate children of the root directory.
+    /// When not set, the scan is unlimited.
+    #[arg(long)]
+    max_depth: Option<usize>,
 }
 
 /// Top-level subcommands.
@@ -332,6 +340,7 @@ impl Cli {
                 .or(config.scanning.threads)
                 .unwrap_or(0),
             skip,
+            max_depth: self.scanning.max_depth.or(config.scanning.max_depth),
         }
     }
 
@@ -711,6 +720,7 @@ mod tests {
                 verbose: Some(true),
                 skip: Some(vec![PathBuf::from(".cargo")]),
                 ignore: Some(vec![PathBuf::from(".git")]),
+                max_depth: None,
             },
             execution: FileExecutionConfig {
                 keep_executables: Some(true),

@@ -143,7 +143,12 @@ impl Scanner {
         let count_clone = Arc::clone(&found_count);
 
         // Find all potential project directories
-        let potential_projects: Vec<_> = WalkDir::new(root)
+        let walker = self.scan_options.max_depth.map_or_else(
+            || WalkDir::new(root),
+            |depth| WalkDir::new(root).max_depth(depth),
+        );
+
+        let potential_projects: Vec<_> = walker
             .into_iter()
             .filter_map(Result::ok)
             .filter(|entry| self.should_scan_entry(entry))
@@ -1581,6 +1586,7 @@ mod tests {
                 verbose: false,
                 threads: 1,
                 skip: vec![],
+                max_depth: None,
             },
             filter,
         )
@@ -1758,6 +1764,7 @@ mod tests {
                 verbose: false,
                 threads: 1,
                 skip: vec![PathBuf::from("skip-me"), PathBuf::from("also-skip")],
+                max_depth: None,
             },
             ProjectFilter::All,
         );
