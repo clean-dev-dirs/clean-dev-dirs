@@ -183,12 +183,13 @@ pub struct Cli {
     #[command(subcommand)]
     pub subcommand: Option<Commands>,
 
-    /// The directory to search for projects
+    /// One or more directories to search for projects
     ///
-    /// Specifies the root directory where the tool will recursively search for
+    /// Specifies the root directories where the tool will recursively search for
     /// development projects. Defaults to the current directory if not specified.
-    #[arg()]
-    dir: Option<PathBuf>,
+    /// Multiple directories can be provided: `clean-dev-dirs ~/Projects ~/work/client`
+    #[arg(num_args = 0..)]
+    dirs: Vec<PathBuf>,
 
     /// Project type to clean (all, rust, node, python, go, java, cpp, swift, dotnet, ruby, elixir, deno)
     ///
@@ -225,9 +226,9 @@ impl Cli {
         self.json
     }
 
-    /// Resolve the target directory from CLI args, config file, or default.
+    /// Resolve the target directories from CLI args, config file, or default.
     ///
-    /// Priority: CLI argument > config file > current directory (`.`).
+    /// Priority: CLI arguments > config file `dirs` > config file `dir` > current directory (`.`).
     /// Tilde expansion is applied to paths originating from the config file.
     ///
     /// # Examples
@@ -238,20 +239,26 @@ impl Cli {
     /// # use std::path::PathBuf;
     /// # mod cli { include!("cli.rs"); }
     /// # use cli::Cli;
-    /// let args = Cli::parse_from(&["clean-dev-dirs", "/custom/path"]);
-    /// assert_eq!(args.directory(&FileConfig::default()), PathBuf::from("/custom/path"));
+    /// let args = Cli::parse_from(&["clean-dev-dirs", "/path/a", "/path/b"]);
+    /// assert_eq!(args.directories(&FileConfig::default()), vec![PathBuf::from("/path/a"), PathBuf::from("/path/b")]);
     /// ```
     #[must_use]
-    pub fn directory(&self, config: &FileConfig) -> PathBuf {
-        if let Some(ref dir) = self.dir {
-            return dir.clone();
+    pub fn directories(&self, config: &FileConfig) -> Vec<PathBuf> {
+        if !self.dirs.is_empty() {
+            return self.dirs.clone();
+        }
+
+        if let Some(ref dirs) = config.dirs
+            && !dirs.is_empty()
+        {
+            return dirs.iter().map(|d| expand_tilde(d)).collect();
         }
 
         if let Some(ref dir) = config.dir {
-            return expand_tilde(dir);
+            return vec![expand_tilde(dir)];
         }
 
-        PathBuf::from(".")
+        vec![PathBuf::from(".")]
     }
 
     /// Extract project filter from CLI args and config file.
@@ -423,7 +430,7 @@ mod tests {
         let args = Cli::parse_from(["clean-dev-dirs"]);
         let config = FileConfig::default();
 
-        assert_eq!(args.directory(&config), PathBuf::from("."));
+        assert_eq!(args.directories(&config), vec![PathBuf::from(".")]);
         assert_eq!(args.project_filter(&config), ProjectFilter::All);
 
         let exec_opts = args.execution_options(&config);
@@ -603,7 +610,36 @@ mod tests {
     fn test_custom_directory() {
         let config = FileConfig::default();
         let args = Cli::parse_from(["clean-dev-dirs", "/custom/path"]);
-        assert_eq!(args.directory(&config), PathBuf::from("/custom/path"));
+        assert_eq!(
+            args.directories(&config),
+            vec![PathBuf::from("/custom/path")]
+        );
+    }
+
+    #[test]
+    fn test_multiple_directories() {
+        let config = FileConfig::default();
+        let args = Cli::parse_from(["clean-dev-dirs", "/path/a", "/path/b"]);
+        assert_eq!(
+            args.directories(&config),
+            vec![PathBuf::from("/path/a"), PathBuf::from("/path/b")]
+        );
+    }
+
+    #[test]
+    fn test_config_dirs_field_used_when_cli_absent() {
+        let args = Cli::parse_from(["clean-dev-dirs"]);
+        let config = FileConfig {
+            dirs: Some(vec![
+                PathBuf::from("/config/dir1"),
+                PathBuf::from("/config/dir2"),
+            ]),
+            ..FileConfig::default()
+        };
+        assert_eq!(
+            args.directories(&config),
+            vec![PathBuf::from("/config/dir1"), PathBuf::from("/config/dir2")]
+        );
     }
 
     #[test]
@@ -709,6 +745,7 @@ mod tests {
         let args = Cli::parse_from(["clean-dev-dirs"]);
         let config = FileConfig {
             project_type: Some("rust".to_string()),
+            dirs: None,
             dir: Some(PathBuf::from("/config/dir")),
             filtering: FileFilterConfig {
                 keep_size: Some("50MB".to_string()),
@@ -730,7 +767,10 @@ mod tests {
             },
         };
 
-        assert_eq!(args.directory(&config), PathBuf::from("/config/dir"));
+        assert_eq!(
+            args.directories(&config),
+            vec![PathBuf::from("/config/dir")]
+        );
         assert_eq!(args.project_filter(&config), ProjectFilter::Rust);
 
         let filter_opts = args.filter_options(&config);
@@ -778,7 +818,7 @@ mod tests {
             ..FileConfig::default()
         };
 
-        assert_eq!(args.directory(&config), PathBuf::from("/cli/dir"));
+        assert_eq!(args.directories(&config), vec![PathBuf::from("/cli/dir")]);
         assert_eq!(args.project_filter(&config), ProjectFilter::Node);
 
         let filter_opts = args.filter_options(&config);
@@ -835,9 +875,9 @@ mod tests {
             ..FileConfig::default()
         };
 
-        let dir = args.directory(&config);
+        let dirs = args.directories(&config);
         if let Some(home) = dirs::home_dir() {
-            assert_eq!(dir, home.join("Projects"));
+            assert_eq!(dirs, vec![home.join("Projects")]);
         }
     }
 

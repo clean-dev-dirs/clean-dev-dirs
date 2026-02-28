@@ -13,7 +13,10 @@
 //!
 //! ```toml
 //! project_type = "rust"
-//! dir = "~/Projects"
+//! # Single directory (legacy):
+//! # dir = "~/Projects"
+//! # Multiple directories:
+//! # dirs = ["~/Projects", "~/work/client"]
 //!
 //! [filtering]
 //! keep_size = "50MB"
@@ -48,7 +51,10 @@ pub struct FileConfig {
     /// Default project type filter (e.g., `"rust"`, `"node"`, `"all"`)
     pub project_type: Option<String>,
 
-    /// Default directory to scan
+    /// Default directories to scan (plural; takes priority over `dir`)
+    pub dirs: Option<Vec<PathBuf>>,
+
+    /// Default directory to scan (legacy single-dir; kept for backward compatibility)
     pub dir: Option<PathBuf>,
 
     /// Filtering options
@@ -194,6 +200,7 @@ mod tests {
         let config = FileConfig::default();
 
         assert!(config.project_type.is_none());
+        assert!(config.dirs.is_none());
         assert!(config.dir.is_none());
         assert!(config.filtering.keep_size.is_none());
         assert!(config.filtering.keep_days.is_none());
@@ -253,6 +260,18 @@ use_trash = true
         assert_eq!(config.execution.interactive, Some(false));
         assert_eq!(config.execution.dry_run, Some(false));
         assert_eq!(config.execution.use_trash, Some(true));
+    }
+
+    #[test]
+    fn test_parse_dirs_field() {
+        let toml_content = r#"dirs = ["~/Projects", "~/work"]"#;
+        let config: FileConfig = toml::from_str(toml_content).unwrap();
+
+        assert_eq!(
+            config.dirs,
+            Some(vec![PathBuf::from("~/Projects"), PathBuf::from("~/work")])
+        );
+        assert!(config.dir.is_none());
     }
 
     #[test]
