@@ -53,6 +53,17 @@ struct FilteringArgs {
     /// For example, --sort size --reverse shows smallest projects first.
     #[arg(long)]
     reverse: bool,
+
+    /// Filter projects by name using a glob or regex pattern
+    ///
+    /// By default the pattern is treated as a glob (*, ?, [abc]).
+    /// Prefix with `regex:` to use a regular expression instead.
+    ///
+    /// Examples:
+    ///   --name "my-app*"          (glob: matches my-app, my-app-v2)
+    ///   --name "regex:^client-.*" (regex mode)
+    #[arg(long)]
+    name: Option<String>,
 }
 
 /// Command-line arguments for controlling cleanup execution behavior.
@@ -381,6 +392,11 @@ impl Cli {
                 .keep_days
                 .or(config.filtering.keep_days)
                 .unwrap_or(0),
+            name_pattern: self
+                .filtering
+                .name
+                .clone()
+                .or_else(|| config.filtering.name_pattern.clone()),
         }
     }
 
@@ -447,6 +463,7 @@ mod tests {
         let filter_opts = args.filter_options(&config);
         assert_eq!(filter_opts.keep_size, "0");
         assert_eq!(filter_opts.keep_days, 0);
+        assert!(filter_opts.name_pattern.is_none());
     }
 
     #[test]
@@ -1056,5 +1073,51 @@ mod tests {
         };
         let sort_opts2 = args_no_reverse.sort_options(&config_reverse);
         assert!(sort_opts2.reverse);
+    }
+
+    #[test]
+    fn test_name_pattern_cli() {
+        let config = FileConfig::default();
+
+        let args = Cli::parse_from(["clean-dev-dirs", "--name", "my-app*"]);
+        let filter_opts = args.filter_options(&config);
+        assert_eq!(filter_opts.name_pattern.as_deref(), Some("my-app*"));
+
+        let args_regex = Cli::parse_from(["clean-dev-dirs", "--name", "regex:^client-.*"]);
+        let filter_opts_regex = args_regex.filter_options(&config);
+        assert_eq!(
+            filter_opts_regex.name_pattern.as_deref(),
+            Some("regex:^client-.*")
+        );
+    }
+
+    #[test]
+    fn test_name_pattern_config_fallback() {
+        let args = Cli::parse_from(["clean-dev-dirs"]);
+        let config = FileConfig {
+            filtering: FileFilterConfig {
+                name_pattern: Some("api-*".to_string()),
+                ..FileFilterConfig::default()
+            },
+            ..FileConfig::default()
+        };
+
+        let filter_opts = args.filter_options(&config);
+        assert_eq!(filter_opts.name_pattern.as_deref(), Some("api-*"));
+    }
+
+    #[test]
+    fn test_name_pattern_cli_overrides_config() {
+        let args = Cli::parse_from(["clean-dev-dirs", "--name", "cli-pat*"]);
+        let config = FileConfig {
+            filtering: FileFilterConfig {
+                name_pattern: Some("config-pat*".to_string()),
+                ..FileFilterConfig::default()
+            },
+            ..FileConfig::default()
+        };
+
+        let filter_opts = args.filter_options(&config);
+        assert_eq!(filter_opts.name_pattern.as_deref(), Some("cli-pat*"));
     }
 }

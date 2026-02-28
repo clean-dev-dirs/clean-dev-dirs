@@ -78,6 +78,9 @@ pub struct FilterOptions {
 
     /// Minimum age in days for projects to be considered
     pub keep_days: u32,
+
+    /// Optional name pattern (glob or `regex:…` prefix) to filter projects by name
+    pub name_pattern: Option<String>,
 }
 
 /// Enumeration of supported sorting criteria for project output.
@@ -177,10 +180,12 @@ mod tests {
         let filter_opts = FilterOptions {
             keep_size: "100MB".to_string(),
             keep_days: 30,
+            name_pattern: None,
         };
 
         assert_eq!(filter_opts.keep_size, "100MB");
         assert_eq!(filter_opts.keep_days, 30);
+        assert!(filter_opts.name_pattern.is_none());
     }
 
     #[test]
@@ -188,11 +193,30 @@ mod tests {
         let original = FilterOptions {
             keep_size: "100MB".to_string(),
             keep_days: 30,
+            name_pattern: None,
         };
         let cloned = original.clone();
 
         assert_eq!(original.keep_size, cloned.keep_size);
         assert_eq!(original.keep_days, cloned.keep_days);
+        assert_eq!(original.name_pattern, cloned.name_pattern);
+    }
+
+    #[test]
+    fn test_filter_options_name_pattern() {
+        let with_glob = FilterOptions {
+            keep_size: "0".to_string(),
+            keep_days: 0,
+            name_pattern: Some("my-app*".to_string()),
+        };
+        assert_eq!(with_glob.name_pattern.as_deref(), Some("my-app*"));
+
+        let with_regex = FilterOptions {
+            keep_size: "0".to_string(),
+            keep_days: 0,
+            name_pattern: Some("regex:^client-.*".to_string()),
+        };
+        assert_eq!(with_regex.name_pattern.as_deref(), Some("regex:^client-.*"));
     }
 
     #[test]

@@ -177,6 +177,22 @@ clean-dev-dirs --keep-days 30
 clean-dev-dirs --keep-size 50MB --keep-days 7
 ```
 
+### Name Filtering
+
+```bash
+# Only clean projects whose name matches a glob pattern
+clean-dev-dirs --name "my-app*"
+
+# Glob with single-character wildcard
+clean-dev-dirs --name "app-?"
+
+# Use a regular expression (prefix with regex:)
+clean-dev-dirs --name "regex:^client-.*"
+
+# Combine with other filters
+clean-dev-dirs --name "regex:^client-" --keep-size 50MB --dry-run
+```
+
 ### Sorting
 
 ```bash
@@ -377,6 +393,7 @@ keep_size = "50MB"
 keep_days = 7
 sort = "size"       # "size", "age", "name", or "type"
 reverse = false
+# name_pattern = "my-*"   # glob or "regex:^prefix-.*"
 
 [scanning]
 threads = 4
@@ -473,7 +490,12 @@ clean-dev-dirs ~/Projects --permanent --yes
 clean-dev-dirs ~/Projects ~/work/client ~/personal/code --sort size --dry-run
 ```
 
-**12. Set up a config file for your usual workflow:**
+**12. Clean only projects whose name starts with `client-`:**
+```bash
+clean-dev-dirs ~/Projects --name "regex:^client-" --dry-run
+```
+
+**13. Set up a config file for your usual workflow:**
 ```bash
 # Generate a commented-out template at the right platform path
 clean-dev-dirs config init
@@ -514,6 +536,7 @@ clean-dev-dirs config <COMMAND>
 |--------|-------|-------------|
 | `--keep-size` | `-s` | Ignore projects with build dir smaller than specified size |
 | `--keep-days` | `-d` | Ignore projects modified in the last N days |
+| `--name` | | Filter by project name using a glob or `regex:` pattern |
 
 ### Sorting Options
 
