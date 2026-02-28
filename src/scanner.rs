@@ -7,7 +7,7 @@
 
 use std::{
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
@@ -193,6 +193,33 @@ impl Scanner {
         }
 
         projects_with_sizes
+    }
+
+    /// Scan multiple root directories and return a deduplicated list of projects.
+    ///
+    /// Calls [`scan_directory`](Scanner::scan_directory) for each root and merges
+    /// the results, skipping any project whose `root_path` was already seen.
+    ///
+    /// # Arguments
+    ///
+    /// * `roots` - Slice of root directories to scan
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<Project>` containing all unique projects found across all roots.
+    #[must_use]
+    pub fn scan_directories(&self, roots: &[PathBuf]) -> Vec<Project> {
+        use std::collections::HashSet;
+        let mut seen: HashSet<PathBuf> = HashSet::new();
+        let mut result = Vec::new();
+        for root in roots {
+            for project in self.scan_directory(root) {
+                if seen.insert(project.root_path.clone()) {
+                    result.push(project);
+                }
+            }
+        }
+        result
     }
 
     /// Calculate the total size of a build directory.

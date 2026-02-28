@@ -27,6 +27,12 @@ cargo install clean-dev-dirs
 # Clean all development directories in current directory
 clean-dev-dirs
 
+# Clean a specific directory
+clean-dev-dirs ~/Projects
+
+# Clean multiple directories at once
+clean-dev-dirs ~/Projects ~/work/client
+
 # Preview what would be cleaned (dry run)
 clean-dev-dirs --dry-run
 
@@ -90,6 +96,9 @@ clean-dev-dirs
 
 # Clean a specific directory
 clean-dev-dirs ~/Projects
+
+# Clean multiple directories at once
+clean-dev-dirs ~/Projects ~/work/client ~/personal/code
 
 # Preview what would be cleaned (dry run)
 clean-dev-dirs --dry-run
@@ -357,8 +366,11 @@ clean-dev-dirs config show
 # Default project type filter
 project_type = "rust"
 
-# Default directory to scan (~ is expanded)
-dir = "~/Projects"
+# Default directories to scan — use dirs for multiple roots (~ is expanded)
+dirs = ["~/Projects", "~/work/client"]
+
+# Legacy single-directory option (ignored when dirs is set)
+# dir = "~/Projects"
 
 [filtering]
 keep_size = "50MB"
@@ -386,7 +398,8 @@ All fields are optional — only set what you need. An absent config file is sil
 
 | Value type | Behavior |
 |------------|----------|
-| Scalar (`keep_size`, `threads`, `project_type`, `dir`, `sort`, …) | CLI wins if provided, otherwise config file, otherwise built-in default |
+| Scalar (`keep_size`, `threads`, `project_type`, `sort`, …) | CLI wins if provided, otherwise config file, otherwise built-in default |
+| Directory roots (`dirs`/`dir`) | CLI args win; then config `dirs` (plural); then config `dir` (legacy); then current directory |
 | Boolean flag (`--dry-run`, `--verbose`, `--reverse`, …) | `true` if the CLI flag is present **or** the config file sets it to `true` |
 | List (`skip`, `ignore`) | **Merged** — config file entries first, then CLI entries appended |
 
@@ -455,7 +468,12 @@ clean-dev-dirs ~/Projects --json --dry-run | jq '.summary'
 clean-dev-dirs ~/Projects --permanent --yes
 ```
 
-**11. Set up a config file for your usual workflow:**
+**11. Scan multiple root directories at once:**
+```bash
+clean-dev-dirs ~/Projects ~/work/client ~/personal/code --sort size --dry-run
+```
+
+**12. Set up a config file for your usual workflow:**
 ```bash
 # Generate a commented-out template at the right platform path
 clean-dev-dirs config init
@@ -482,7 +500,7 @@ clean-dev-dirs config <COMMAND>
 
 | Argument | Description |
 |----------|-------------|
-| `[DIR]` | Directory to search for projects (default: current directory) |
+| `[DIRS]...` | One or more directories to search for projects (default: current directory). Multiple roots are deduplicated. |
 
 ### Project Type Filter
 

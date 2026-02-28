@@ -80,7 +80,7 @@ fn inner_main() -> Result<()> {
     let json_mode = args.json();
     let file_config = load_config(json_mode);
 
-    let dir = args.directory(&file_config);
+    let dirs = args.directories(&file_config);
     let project_filter = args.project_filter(&file_config);
     let execution_options = args.execution_options(&file_config);
     let scan_options = args.scan_options(&file_config);
@@ -97,7 +97,7 @@ fn inner_main() -> Result<()> {
     }
 
     let scanner = Scanner::new(scan_options, project_filter).with_quiet(json_mode);
-    let projects = scanner.scan_directory(&dir);
+    let projects = scanner.scan_directories(&dirs);
 
     if !json_mode {
         println!("Found {} projects", projects.len());
