@@ -23,6 +23,7 @@
 //! keep_days = 7
 //! sort = "size"
 //! reverse = false
+//! # name_pattern = "my-*"
 //!
 //! [scanning]
 //! threads = 4
@@ -84,6 +85,9 @@ pub struct FileFilterConfig {
 
     /// Whether to reverse the sort order
     pub reverse: Option<bool>,
+
+    /// Optional name pattern (glob or `regex:…` prefix) to filter projects by name
+    pub name_pattern: Option<String>,
 }
 
 /// Scanning options from the configuration file.
@@ -206,6 +210,7 @@ mod tests {
         assert!(config.filtering.keep_days.is_none());
         assert!(config.filtering.sort.is_none());
         assert!(config.filtering.reverse.is_none());
+        assert!(config.filtering.name_pattern.is_none());
         assert!(config.scanning.threads.is_none());
         assert!(config.scanning.verbose.is_none());
         assert!(config.scanning.skip.is_none());
@@ -227,6 +232,7 @@ keep_size = "50MB"
 keep_days = 7
 sort = "size"
 reverse = true
+name_pattern = "my-*"
 
 [scanning]
 threads = 4
@@ -249,6 +255,7 @@ use_trash = true
         assert_eq!(config.filtering.keep_days, Some(7));
         assert_eq!(config.filtering.sort, Some("size".to_string()));
         assert_eq!(config.filtering.reverse, Some(true));
+        assert_eq!(config.filtering.name_pattern, Some("my-*".to_string()));
         assert_eq!(config.scanning.threads, Some(4));
         assert_eq!(config.scanning.verbose, Some(true));
         assert_eq!(

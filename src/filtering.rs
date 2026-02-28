@@ -5,7 +5,9 @@
 
 use anyhow::Result;
 use chrono::{DateTime, Local};
+use glob::Pattern as GlobPattern;
 use rayon::prelude::*;
+use regex::Regex;
 use std::cmp::Reverse;
 use std::fs;
 use std::time::SystemTime;
@@ -14,6 +16,45 @@ use crate::config::filter::SortCriteria;
 use crate::config::{FilterOptions, SortOptions};
 use crate::project::{Project, ProjectType};
 use crate::utils::parse_size;
+
+/// Compiled name pattern used to filter projects by name.
+///
+/// Precompiled once before the parallel filter pass to avoid repeated
+/// compilation inside the hot path.
+enum NameMatcher {
+    None,
+    Glob(GlobPattern),
+    Regex(Regex),
+}
+
+impl NameMatcher {
+    fn is_match(&self, name: &str) -> bool {
+        match self {
+            Self::None => true,
+            Self::Glob(pat) => pat.matches(name),
+            Self::Regex(re) => re.is_match(name),
+        }
+    }
+}
+
+/// Compile a raw pattern string into a [`NameMatcher`].
+///
+/// - `None` or empty string → `NameMatcher::None` (no filtering)
+/// - `"regex:<expr>"` → compiled regular expression
+/// - anything else → glob pattern
+fn compile_name_matcher(pattern: Option<&str>) -> Result<NameMatcher> {
+    let Some(pat) = pattern else {
+        return Ok(NameMatcher::None);
+    };
+    if pat.is_empty() {
+        return Ok(NameMatcher::None);
+    }
+    if let Some(regex_pat) = pat.strip_prefix("regex:") {
+        Ok(NameMatcher::Regex(Regex::new(regex_pat)?))
+    } else {
+        Ok(NameMatcher::Glob(GlobPattern::new(pat)?))
+    }
+}
 
 /// Filter projects based on size and modification time criteria.
 ///
@@ -47,6 +88,7 @@ use crate::utils::parse_size;
 /// let filter_opts = FilterOptions {
 ///     keep_size: "100MB".to_string(),
 ///     keep_days: 30,
+///     name_pattern: None,
 /// };
 /// let filtered = filter_projects(projects, &filter_opts)?;
 /// # Ok(())
@@ -58,11 +100,16 @@ pub fn filter_projects(
 ) -> Result<Vec<Project>> {
     let keep_size_bytes = parse_size(&filter_opts.keep_size)?;
     let keep_days = filter_opts.keep_days;
+    let name_matcher = compile_name_matcher(filter_opts.name_pattern.as_deref())?;
 
     Ok(projects
         .into_par_iter()
         .filter(|project| meets_size_criteria(project, keep_size_bytes))
         .filter(|project| meets_time_criteria(project, keep_days))
+        .filter(|project| {
+            let name = project.name.as_deref().unwrap_or("");
+            name_matcher.is_match(name)
+        })
         .collect())
 }
 
@@ -665,5 +712,164 @@ mod tests {
         assert!(type_order(&ProjectType::Python) < type_order(&ProjectType::Ruby));
         assert!(type_order(&ProjectType::Ruby) < type_order(&ProjectType::Rust));
         assert!(type_order(&ProjectType::Rust) < type_order(&ProjectType::Swift));
+    }
+
+    // ── NameMatcher tests ───────────────────────────────────────────────
+
+    #[test]
+    fn test_name_matcher_none_passes_all() {
+        let matcher = compile_name_matcher(None).unwrap();
+        assert!(matcher.is_match("any-name"));
+        assert!(matcher.is_match(""));
+        assert!(matcher.is_match("something-else"));
+    }
+
+    #[test]
+    fn test_name_matcher_glob_star() {
+        let matcher = compile_name_matcher(Some("my-app*")).unwrap();
+        assert!(matcher.is_match("my-app"));
+        assert!(matcher.is_match("my-app-v2"));
+        assert!(matcher.is_match("my-appXYZ"));
+        assert!(!matcher.is_match("other-app"));
+        assert!(!matcher.is_match(""));
+    }
+
+    #[test]
+    fn test_name_matcher_glob_question_mark() {
+        let matcher = compile_name_matcher(Some("app-?")).unwrap();
+        assert!(matcher.is_match("app-1"));
+        assert!(matcher.is_match("app-a"));
+        assert!(!matcher.is_match("app-12"));
+        assert!(!matcher.is_match("app-"));
+    }
+
+    #[test]
+    fn test_name_matcher_regex_prefix() {
+        let matcher = compile_name_matcher(Some("regex:^client-.*")).unwrap();
+        assert!(matcher.is_match("client-api"));
+        assert!(matcher.is_match("client-web"));
+        assert!(!matcher.is_match("server-api"));
+        assert!(!matcher.is_match(""));
+    }
+
+    #[test]
+    fn test_name_matcher_regex_invalid_returns_error() {
+        let result = compile_name_matcher(Some("regex:[invalid"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_name_matcher_glob_invalid_returns_error() {
+        // glob crate treats most patterns as valid, but brackets without closing
+        // bracket cause a PatternError
+        let result = compile_name_matcher(Some("["));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_filter_projects_by_name_glob() {
+        let projects = vec![
+            create_test_project(
+                ProjectType::Rust,
+                "/a",
+                "/a/target",
+                1000,
+                Some("my-app".into()),
+            ),
+            create_test_project(
+                ProjectType::Rust,
+                "/b",
+                "/b/target",
+                1000,
+                Some("my-app-v2".into()),
+            ),
+            create_test_project(
+                ProjectType::Rust,
+                "/c",
+                "/c/target",
+                1000,
+                Some("other-project".into()),
+            ),
+        ];
+
+        let filter_opts = FilterOptions {
+            keep_size: "0".to_string(),
+            keep_days: 0,
+            name_pattern: Some("my-app*".to_string()),
+        };
+
+        let filtered = filter_projects(projects, &filter_opts).unwrap();
+        assert_eq!(filtered.len(), 2);
+        assert!(
+            filtered
+                .iter()
+                .all(|p| p.name.as_deref().unwrap_or("").starts_with("my-app"))
+        );
+    }
+
+    #[test]
+    fn test_filter_projects_by_name_regex() {
+        let projects = vec![
+            create_test_project(
+                ProjectType::Rust,
+                "/a",
+                "/a/target",
+                1000,
+                Some("client-api".into()),
+            ),
+            create_test_project(
+                ProjectType::Rust,
+                "/b",
+                "/b/target",
+                1000,
+                Some("client-web".into()),
+            ),
+            create_test_project(
+                ProjectType::Rust,
+                "/c",
+                "/c/target",
+                1000,
+                Some("server-api".into()),
+            ),
+        ];
+
+        let filter_opts = FilterOptions {
+            keep_size: "0".to_string(),
+            keep_days: 0,
+            name_pattern: Some("regex:^client-.*".to_string()),
+        };
+
+        let filtered = filter_projects(projects, &filter_opts).unwrap();
+        assert_eq!(filtered.len(), 2);
+        assert!(
+            filtered
+                .iter()
+                .all(|p| p.name.as_deref().unwrap_or("").starts_with("client-"))
+        );
+    }
+
+    #[test]
+    fn test_filter_projects_name_none_no_match() {
+        let projects = vec![
+            create_test_project(ProjectType::Rust, "/a", "/a/target", 1000, None),
+            create_test_project(
+                ProjectType::Rust,
+                "/b",
+                "/b/target",
+                1000,
+                Some("named".into()),
+            ),
+        ];
+
+        let filter_opts = FilterOptions {
+            keep_size: "0".to_string(),
+            keep_days: 0,
+            name_pattern: Some("named*".to_string()),
+        };
+
+        let filtered = filter_projects(projects, &filter_opts).unwrap();
+        // The project with name=None is treated as "" and should not match "named*"
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name.as_deref(), Some("named"));
     }
 }
