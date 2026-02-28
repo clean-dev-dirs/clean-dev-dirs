@@ -173,6 +173,11 @@ impl JsonSummary {
                 ProjectType::Ruby => "ruby",
                 ProjectType::Elixir => "elixir",
                 ProjectType::Deno => "deno",
+                ProjectType::Php => "php",
+                ProjectType::Haskell => "haskell",
+                ProjectType::Dart => "dart",
+                ProjectType::Zig => "zig",
+                ProjectType::Scala => "scala",
             };
 
             let entry = by_type.entry(key.to_string()).or_insert((0, 0));

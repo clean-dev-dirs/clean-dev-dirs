@@ -6,7 +6,7 @@
  ▀█▄▄▀    ▀▄▄  ▀█▄▄▀  ▀▄▄▀█  █   █         ▀█▄██  ▀█▄▄▀    █           ▀█▄██  ▄▄█▄▄   █     ▀▄▄▄▀ 
 </pre>
 
-> A fast and efficient CLI tool for recursively cleaning development build directories across 11 language ecosystems to reclaim disk space. Supports Rust, Node.js, Python, Go, Java/Kotlin, C/C++, Swift, .NET/C#, Ruby, Elixir, and Deno.
+> A fast and efficient CLI tool for recursively cleaning development build directories across 16 language ecosystems to reclaim disk space. Supports Rust, Node.js, Python, Go, Java/Kotlin, C/C++, Swift, .NET/C#, Ruby, Elixir, Deno, PHP, Haskell, Dart/Flutter, Zig, and Scala.
 
 > Created and maintained by [Tom Planche](https://github.com/TomPlanche). The GitHub organization exists solely to host the Homebrew tap alongside the main repository.
 
@@ -36,7 +36,7 @@ clean-dev-dirs --interactive
 
 ## Features
 
-- **Multi-language support**: Clean build artifacts across 11 ecosystems — Rust (`target/`), Node.js (`node_modules/`), Python (cache dirs), Go (`vendor/`), Java/Kotlin (`target/`/`build/`), C/C++ (`build/`), Swift (`.build/`), .NET/C# (`bin/`+`obj/`), Ruby (`.bundle/`/`vendor/bundle/`), Elixir (`_build/`), and Deno (`vendor/`/`node_modules/`)
+- **Multi-language support**: Clean build artifacts across 16 ecosystems — Rust (`target/`), Node.js (`node_modules/`), Python (cache dirs), Go (`vendor/`), Java/Kotlin (`target/`/`build/`), C/C++ (`build/`), Swift (`.build/`), .NET/C# (`bin/`+`obj/`), Ruby (`.bundle/`/`vendor/bundle/`), Elixir (`_build/`), Deno (`vendor/`/`node_modules/`), PHP (`vendor/`), Haskell (`.stack-work/`/`dist-newstyle/`), Dart/Flutter (`.dart_tool/`/`build/`), Zig (`zig-cache/`/`zig-out/`), and Scala (`target/`)
 - **Parallel scanning**: Lightning-fast directory traversal using multithreading
 - **Smart filtering**: Filter by project size, modification time, and project type
 - **Flexible sorting**: Sort results by size, age, name, or project type with `--sort`
@@ -54,7 +54,7 @@ clean-dev-dirs --interactive
 
 This project is inspired by [cargo-clean-all](https://github.com/dnlmlr/cargo-clean-all), a Rust-specific tool for cleaning cargo projects. I've improved upon the original concept with:
 
-- **Multi-language support**: Extended beyond Rust to support Node.js, Python, Go, Java/Kotlin, C/C++, Swift, .NET/C#, Ruby, Elixir, and Deno projects
+- **Multi-language support**: Extended beyond Rust to support Node.js, Python, Go, Java/Kotlin, C/C++, Swift, .NET/C#, Ruby, Elixir, Deno, PHP, Haskell, Dart/Flutter, Zig, and Scala projects
 - **Parallel scanning**: Significantly faster directory traversal using multithreading
 - **Enhanced filtering**: More granular control over what gets cleaned
 - **Cleaner code architecture**: Well-structured, modular codebase for better maintainability
@@ -136,6 +136,21 @@ clean-dev-dirs -p elixir
 # Clean only Deno projects
 clean-dev-dirs -p deno
 
+# Clean only PHP projects
+clean-dev-dirs -p php
+
+# Clean only Haskell projects
+clean-dev-dirs -p haskell
+
+# Clean only Dart/Flutter projects
+clean-dev-dirs -p dart
+
+# Clean only Zig projects
+clean-dev-dirs -p zig
+
+# Clean only Scala projects
+clean-dev-dirs -p scala
+
 # Clean all project types (default)
 clean-dev-dirs -p all
 ```
@@ -195,7 +210,7 @@ When enabled, compiled outputs are copied to `<project>/bin/` before the build d
 
 - **Rust**: executables from `target/release/` and `target/debug/` are copied to `bin/release/` and `bin/debug/`
 - **Python**: `.whl` files from `dist/` and `.so`/`.pyd` C extensions from `build/` are copied to `bin/`
-- **Node.js / Go / Java / C++ / Swift / .NET / Ruby / Elixir / Deno**: no-op (their cleaned directories contain dependencies or build outputs not easily preservable)
+- **Node.js / Go / Java / C++ / Swift / .NET / Ruby / Elixir / Deno / PHP / Haskell / Dart / Zig / Scala**: no-op (their cleaned directories contain dependencies or build outputs not easily preservable)
 
 ### Trash Support (Default)
 
@@ -473,7 +488,7 @@ clean-dev-dirs config <COMMAND>
 
 | Option | Short | Values | Description |
 |--------|-------|--------|-------------|
-| `--project-type` | `-p` | `all`, `rust`, `node`, `python`, `go`, `java`, `cpp`, `swift`, `dotnet`, `ruby`, `elixir`, `deno` | Filter by project type (default: `all`) |
+| `--project-type` | `-p` | `all`, `rust`, `node`, `python`, `go`, `java`, `cpp`, `swift`, `dotnet`, `ruby`, `elixir`, `deno`, `php`, `haskell`, `dart`, `zig`, `scala` | Filter by project type (default: `all`) |
 
 ### Filtering Options
 
@@ -603,6 +618,33 @@ The tool automatically detects development projects by looking for characteristi
 - **Cleans**: `vendor/` or `node_modules/` directory
 - **Name extraction**: From `name` field in `deno.json`/`deno.jsonc`, or falls back to directory name
 
+### PHP Projects
+- **Detection criteria**: Both `composer.json` and `vendor/` directory must exist
+- **Cleans**: `vendor/` directory
+- **Name extraction**: From `name` field in `composer.json` (the package component after `/`), or falls back to directory name
+
+### Haskell Projects
+- **Detection criteria**:
+  - Stack: `stack.yaml` + `.stack-work/` directory
+  - Cabal: `cabal.project` or a `*.cabal` file + `dist-newstyle/` directory
+- **Cleans**: `.stack-work/` (Stack) or `dist-newstyle/` (Cabal)
+- **Name extraction**: From `name:` field in a `*.cabal` file, then `package.yaml` (hpack), or falls back to directory name
+
+### Dart/Flutter Projects
+- **Detection criteria**: `pubspec.yaml` + `.dart_tool/` and/or `build/` directory must exist
+- **Cleans**: `.dart_tool/` and/or `build/` directories when present
+- **Name extraction**: From `name:` field in `pubspec.yaml`, or falls back to directory name
+
+### Zig Projects
+- **Detection criteria**: `build.zig` + `zig-cache/` and/or `zig-out/` directory must exist
+- **Cleans**: `zig-cache/` and/or `zig-out/` directories when present
+- **Name extraction**: Falls back to directory name (no standard name field in `build.zig`)
+
+### Scala Projects
+- **Detection criteria**: Both `build.sbt` and `target/` directory must exist
+- **Cleans**: `target/` directory
+- **Name extraction**: From `name := "..."` assignment in `build.sbt`, or falls back to directory name
+
 ## Safety Features
 
 - **Trash by default**: Directories are moved to the system trash for recoverable cleanups; use `--permanent` to override
@@ -630,6 +672,11 @@ The tool provides beautiful, colored output including:
 | 💎 | Ruby projects |
 | 💧 | Elixir projects |
 | 🦕 | Deno projects |
+| 🐘 | PHP projects |
+| λ | Haskell projects |
+| 🎯 | Dart/Flutter projects |
+| ⚡ | Zig projects |
+| 🔴 | Scala projects |
 
 ### Sample Output
 
@@ -744,15 +791,7 @@ Consider these when testing your implementation:
 - **Name extraction edge cases**: Handle malformed or missing project names gracefully
 - **Performance**: Ensure detection doesn't significantly slow down scanning
 
-#### 7. **Example Languages to Add**
-
-Some languages that would be great additions:
-
-- **PHP**: Look for `composer.json` + `vendor/`
-- **Dart/Flutter**: Look for `pubspec.yaml` + `.dart_tool/` or `build/`
-- **Scala**: Look for `build.sbt` + `target/`
-
-#### 8. **Pull Request Guidelines**
+#### 7. **Pull Request Guidelines**
 
 When submitting your language support:
 

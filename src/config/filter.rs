@@ -49,6 +49,22 @@ pub enum ProjectFilter {
 
     /// Include only Deno projects (deno.json + vendor/ or `node_modules`/)
     Deno,
+
+    /// Include only PHP projects (composer.json + vendor/)
+    #[value(name = "php")]
+    Php,
+
+    /// Include only Haskell projects (stack.yaml or cabal.project + .stack-work/ or dist-newstyle/)
+    Haskell,
+
+    /// Include only Dart/Flutter projects (pubspec.yaml + `.dart_tool`/ or build/)
+    Dart,
+
+    /// Include only Zig projects (build.zig + zig-cache/ or zig-out/)
+    Zig,
+
+    /// Include only Scala projects (build.sbt + target/)
+    Scala,
 }
 
 /// Configuration for project filtering criteria.
@@ -118,6 +134,11 @@ mod tests {
         assert_eq!(ProjectFilter::Ruby, ProjectFilter::Ruby);
         assert_eq!(ProjectFilter::Elixir, ProjectFilter::Elixir);
         assert_eq!(ProjectFilter::Deno, ProjectFilter::Deno);
+        assert_eq!(ProjectFilter::Php, ProjectFilter::Php);
+        assert_eq!(ProjectFilter::Haskell, ProjectFilter::Haskell);
+        assert_eq!(ProjectFilter::Dart, ProjectFilter::Dart);
+        assert_eq!(ProjectFilter::Zig, ProjectFilter::Zig);
+        assert_eq!(ProjectFilter::Scala, ProjectFilter::Scala);
 
         assert_ne!(ProjectFilter::All, ProjectFilter::Rust);
         assert_ne!(ProjectFilter::Rust, ProjectFilter::Node);
@@ -130,6 +151,11 @@ mod tests {
         assert_ne!(ProjectFilter::DotNet, ProjectFilter::Ruby);
         assert_ne!(ProjectFilter::Ruby, ProjectFilter::Elixir);
         assert_ne!(ProjectFilter::Elixir, ProjectFilter::Deno);
+        assert_ne!(ProjectFilter::Deno, ProjectFilter::Php);
+        assert_ne!(ProjectFilter::Php, ProjectFilter::Haskell);
+        assert_ne!(ProjectFilter::Haskell, ProjectFilter::Dart);
+        assert_ne!(ProjectFilter::Dart, ProjectFilter::Zig);
+        assert_ne!(ProjectFilter::Zig, ProjectFilter::Scala);
     }
 
     #[test]
