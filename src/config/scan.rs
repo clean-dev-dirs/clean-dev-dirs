@@ -9,7 +9,7 @@ use std::path::PathBuf;
 ///
 /// This struct contains options that control how directories are traversed
 /// and what information is collected during the scanning process.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ScanOptions {
     /// Whether to show verbose output including scan errors
     pub verbose: bool,

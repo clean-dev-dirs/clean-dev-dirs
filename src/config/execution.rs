@@ -7,7 +7,7 @@
 ///
 /// This struct provides a simplified interface to execution-related options,
 /// controlling how the cleanup process runs.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct ExecutionOptions {
     /// Whether to run in dry-run mode (no actual deletion)

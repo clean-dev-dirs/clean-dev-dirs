@@ -222,7 +222,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_full_config() {
+    fn test_parse_full_config() -> anyhow::Result<()> {
         let toml_content = r#"
 project_type = "rust"
 dir = "~/Projects"
@@ -247,7 +247,7 @@ dry_run = false
 use_trash = true
 "#;
 
-        let config: FileConfig = toml::from_str(toml_content).unwrap();
+        let config: FileConfig = toml::from_str(toml_content)?;
 
         assert_eq!(config.project_type, Some("rust".to_string()));
         assert_eq!(config.dir, Some(PathBuf::from("~/Projects")));
@@ -267,28 +267,32 @@ use_trash = true
         assert_eq!(config.execution.interactive, Some(false));
         assert_eq!(config.execution.dry_run, Some(false));
         assert_eq!(config.execution.use_trash, Some(true));
+
+        Ok(())
     }
 
     #[test]
-    fn test_parse_dirs_field() {
+    fn test_parse_dirs_field() -> anyhow::Result<()> {
         let toml_content = r#"dirs = ["~/Projects", "~/work"]"#;
-        let config: FileConfig = toml::from_str(toml_content).unwrap();
+        let config: FileConfig = toml::from_str(toml_content)?;
 
         assert_eq!(
             config.dirs,
             Some(vec![PathBuf::from("~/Projects"), PathBuf::from("~/work")])
         );
         assert!(config.dir.is_none());
+
+        Ok(())
     }
 
     #[test]
-    fn test_parse_partial_config() {
+    fn test_parse_partial_config() -> anyhow::Result<()> {
         let toml_content = r#"
 [filtering]
 keep_size = "100MB"
 "#;
 
-        let config: FileConfig = toml::from_str(toml_content).unwrap();
+        let config: FileConfig = toml::from_str(toml_content)?;
 
         assert!(config.project_type.is_none());
         assert!(config.dir.is_none());
@@ -297,15 +301,19 @@ keep_size = "100MB"
         assert!(config.filtering.sort.is_none());
         assert!(config.filtering.reverse.is_none());
         assert!(config.scanning.threads.is_none());
+
+        Ok(())
     }
 
     #[test]
-    fn test_parse_empty_config() {
+    fn test_parse_empty_config() -> anyhow::Result<()> {
         let toml_content = "";
-        let config: FileConfig = toml::from_str(toml_content).unwrap();
+        let config: FileConfig = toml::from_str(toml_content)?;
 
         assert!(config.project_type.is_none());
         assert!(config.dir.is_none());
+
+        Ok(())
     }
 
     #[test]
@@ -327,10 +335,12 @@ keep_days = "not_a_number"
     }
 
     #[test]
-    fn test_load_returns_defaults_when_no_file() {
-        let config = FileConfig::load().unwrap();
+    fn test_load_returns_defaults_when_no_file() -> anyhow::Result<()> {
+        let config = FileConfig::load()?;
         assert!(config.project_type.is_none());
         assert!(config.dir.is_none());
+
+        Ok(())
     }
 
     #[test]
@@ -450,23 +460,24 @@ keep_days = "not_a_number"
     }
 
     #[test]
-    fn test_config_toml_parsing_with_platform_paths() {
-        // Test that TOML parsing handles paths from any platform
+    fn test_config_toml_parsing_with_platform_paths() -> anyhow::Result<()> {
         let toml_unix = "dir = \"/home/user/projects\"\n";
-        let config: FileConfig = toml::from_str(toml_unix).unwrap();
+        let config: FileConfig = toml::from_str(toml_unix)?;
         assert_eq!(config.dir, Some(PathBuf::from("/home/user/projects")));
 
         let toml_tilde = "dir = \"~/Projects\"\n";
-        let config: FileConfig = toml::from_str(toml_tilde).unwrap();
+        let config: FileConfig = toml::from_str(toml_tilde)?;
         assert_eq!(config.dir, Some(PathBuf::from("~/Projects")));
 
         let toml_relative = "dir = \"./projects\"\n";
-        let config: FileConfig = toml::from_str(toml_relative).unwrap();
+        let config: FileConfig = toml::from_str(toml_relative)?;
         assert_eq!(config.dir, Some(PathBuf::from("./projects")));
+
+        Ok(())
     }
 
     #[test]
-    fn test_file_config_all_execution_options_parse() {
+    fn test_file_config_all_execution_options_parse() -> anyhow::Result<()> {
         let toml_content = r"
 [execution]
 keep_executables = true
@@ -474,11 +485,13 @@ interactive = false
 dry_run = true
 use_trash = false
 ";
-        let config: FileConfig = toml::from_str(toml_content).unwrap();
+        let config: FileConfig = toml::from_str(toml_content)?;
 
         assert_eq!(config.execution.keep_executables, Some(true));
         assert_eq!(config.execution.interactive, Some(false));
         assert_eq!(config.execution.dry_run, Some(true));
         assert_eq!(config.execution.use_trash, Some(false));
+
+        Ok(())
     }
 }

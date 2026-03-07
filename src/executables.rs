@@ -101,9 +101,9 @@ fn preserve_rust_executables(project: &Project) -> Result<Vec<PreservedExecutabl
             .with_context(|| format!("Failed to create {}", dest_dir.display()))?;
 
         for exe_path in executables {
-            let file_name = exe_path
-                .file_name()
-                .expect("executable path should have a file name");
+            let Some(file_name) = exe_path.file_name() else {
+                continue;
+            };
             let dest_path = dest_dir.join(file_name);
 
             fs::copy(&exe_path, &dest_path).with_context(|| {
@@ -238,9 +238,9 @@ fn copy_to_bin(
     fs::create_dir_all(bin_dir)
         .with_context(|| format!("Failed to create {}", bin_dir.display()))?;
 
-    let file_name = source
-        .file_name()
-        .expect("source path should have a file name");
+    let Some(file_name) = source.file_name() else {
+        return Ok(());
+    };
     let dest_path = bin_dir.join(file_name);
 
     fs::copy(source, &dest_path).with_context(|| {
@@ -265,7 +265,7 @@ mod tests {
     use crate::project::BuildArtifacts;
     use tempfile::TempDir;
 
-    fn create_test_project(tmp: &TempDir, kind: ProjectType) -> Project {
+    fn create_test_project(tmp: &TempDir, kind: ProjectType) -> anyhow::Result<Project> {
         let root = tmp.path().to_path_buf();
         let build_dir = match kind {
             ProjectType::Rust | ProjectType::Java | ProjectType::Scala => root.join("target"),
@@ -280,9 +280,9 @@ mod tests {
             ProjectType::Zig => root.join("zig-cache"),
         };
 
-        fs::create_dir_all(&build_dir).unwrap();
+        fs::create_dir_all(&build_dir)?;
 
-        Project::new(
+        Ok(Project::new(
             kind,
             root,
             vec![BuildArtifacts {
@@ -290,29 +290,28 @@ mod tests {
                 size: 0,
             }],
             Some("test-project".to_string()),
-        )
+        ))
     }
 
     #[test]
     #[cfg(unix)]
-    fn test_preserve_rust_executables_unix() {
+    fn test_preserve_rust_executables_unix() -> anyhow::Result<()> {
         use std::os::unix::fs::PermissionsExt;
 
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Rust);
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Rust)?;
 
-        // Create target/release/ with an executable and a metadata file
         let release_dir = tmp.path().join("target/release");
-        fs::create_dir_all(&release_dir).unwrap();
+        fs::create_dir_all(&release_dir)?;
 
         let exe_path = release_dir.join("my-binary");
-        fs::write(&exe_path, b"fake binary").unwrap();
-        fs::set_permissions(&exe_path, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(&exe_path, b"fake binary")?;
+        fs::set_permissions(&exe_path, fs::Permissions::from_mode(0o755))?;
 
         let dep_file = release_dir.join("my-binary.d");
-        fs::write(&dep_file, b"dep info").unwrap();
+        fs::write(&dep_file, b"dep info")?;
 
-        let result = preserve_executables(&project).unwrap();
+        let result = preserve_executables(&project)?;
 
         assert_eq!(result.len(), 1);
         assert_eq!(
@@ -320,25 +319,26 @@ mod tests {
             tmp.path().join("bin/release/my-binary")
         );
         assert!(result[0].destination.exists());
+
+        Ok(())
     }
 
     #[test]
     #[cfg(windows)]
-    fn test_preserve_rust_executables_windows() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Rust);
+    fn test_preserve_rust_executables_windows() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Rust)?;
 
         let release_dir = tmp.path().join("target/release");
-        fs::create_dir_all(&release_dir).unwrap();
+        fs::create_dir_all(&release_dir)?;
 
-        // On Windows, executables have the .exe extension
         let exe_path = release_dir.join("my-binary.exe");
-        fs::write(&exe_path, b"fake binary").unwrap();
+        fs::write(&exe_path, b"fake binary")?;
 
         let dep_file = release_dir.join("my-binary.d");
-        fs::write(&dep_file, b"dep info").unwrap();
+        fs::write(&dep_file, b"dep info")?;
 
-        let result = preserve_executables(&project).unwrap();
+        let result = preserve_executables(&project)?;
 
         assert_eq!(result.len(), 1);
         assert_eq!(
@@ -346,95 +346,103 @@ mod tests {
             tmp.path().join("bin/release/my-binary.exe")
         );
         assert!(result[0].destination.exists());
+
+        Ok(())
     }
 
     #[test]
     #[cfg(unix)]
-    fn test_preserve_rust_skips_non_executable_unix() {
+    fn test_preserve_rust_skips_non_executable_unix() -> anyhow::Result<()> {
         use std::os::unix::fs::PermissionsExt;
 
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Rust);
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Rust)?;
 
         let release_dir = tmp.path().join("target/release");
-        fs::create_dir_all(&release_dir).unwrap();
+        fs::create_dir_all(&release_dir)?;
 
-        // Non-executable file (mode 0o644)
         let non_exe = release_dir.join("some-file");
-        fs::write(&non_exe, b"not executable").unwrap();
-        fs::set_permissions(&non_exe, fs::Permissions::from_mode(0o644)).unwrap();
+        fs::write(&non_exe, b"not executable")?;
+        fs::set_permissions(&non_exe, fs::Permissions::from_mode(0o644))?;
 
-        let result = preserve_executables(&project).unwrap();
+        let result = preserve_executables(&project)?;
         assert!(result.is_empty());
+
+        Ok(())
     }
 
     #[test]
     #[cfg(windows)]
-    fn test_preserve_rust_skips_non_executable_windows() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Rust);
+    fn test_preserve_rust_skips_non_executable_windows() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Rust)?;
 
         let release_dir = tmp.path().join("target/release");
-        fs::create_dir_all(&release_dir).unwrap();
+        fs::create_dir_all(&release_dir)?;
 
-        // On Windows, a file without .exe extension is not treated as executable
         let non_exe = release_dir.join("some-file.txt");
-        fs::write(&non_exe, b"not executable").unwrap();
+        fs::write(&non_exe, b"not executable")?;
 
-        let result = preserve_executables(&project).unwrap();
+        let result = preserve_executables(&project)?;
         assert!(result.is_empty());
+
+        Ok(())
     }
 
     #[test]
-    fn test_node_is_noop() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Node);
+    fn test_node_is_noop() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Node)?;
 
-        let result = preserve_executables(&project).unwrap();
+        let result = preserve_executables(&project)?;
         assert!(result.is_empty());
+
+        Ok(())
     }
 
     #[test]
-    fn test_go_is_noop() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Go);
+    fn test_go_is_noop() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Go)?;
 
-        let result = preserve_executables(&project).unwrap();
+        let result = preserve_executables(&project)?;
         assert!(result.is_empty());
+
+        Ok(())
     }
 
     #[test]
-    fn test_preserve_rust_no_profile_dirs() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Rust);
+    fn test_preserve_rust_no_profile_dirs() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Rust)?;
 
-        // target/ exists but no release/ or debug/ subdirs
-        let result = preserve_executables(&project).unwrap();
+        let result = preserve_executables(&project)?;
         assert!(result.is_empty());
         assert!(!tmp.path().join("bin").exists());
+
+        Ok(())
     }
 
     // ── Unix-specific tests ─────────────────────────────────────────────
 
     #[test]
     #[cfg(unix)]
-    fn test_find_multiple_rust_executables_unix() {
+    fn test_find_multiple_rust_executables_unix() -> anyhow::Result<()> {
         use std::os::unix::fs::PermissionsExt;
 
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Rust);
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Rust)?;
 
         let release_dir = tmp.path().join("target/release");
-        fs::create_dir_all(&release_dir).unwrap();
+        fs::create_dir_all(&release_dir)?;
 
-        // Create multiple executables
         for name in &["binary-a", "binary-b", "binary-c"] {
             let exe_path = release_dir.join(name);
-            fs::write(&exe_path, b"fake binary").unwrap();
-            fs::set_permissions(&exe_path, fs::Permissions::from_mode(0o755)).unwrap();
+            fs::write(&exe_path, b"fake binary")?;
+            fs::set_permissions(&exe_path, fs::Permissions::from_mode(0o755))?;
         }
 
-        let result = preserve_executables(&project).unwrap();
+        let result = preserve_executables(&project)?;
         assert_eq!(result.len(), 3);
 
         for preserved in &result {
@@ -445,20 +453,22 @@ mod tests {
                     .starts_with(tmp.path().join("bin/release"))
             );
         }
+
+        Ok(())
     }
 
     #[test]
     #[cfg(unix)]
-    fn test_find_rust_executables_excludes_metadata_even_if_executable_unix() {
+    fn test_find_rust_executables_excludes_metadata_even_if_executable_unix() -> anyhow::Result<()>
+    {
         use std::os::unix::fs::PermissionsExt;
 
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Rust);
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Rust)?;
 
         let release_dir = tmp.path().join("target/release");
-        fs::create_dir_all(&release_dir).unwrap();
+        fs::create_dir_all(&release_dir)?;
 
-        // Create files with excluded extensions but with executable permissions
         let excluded_files = [
             "dep.d",
             "lib.rmeta",
@@ -472,86 +482,83 @@ mod tests {
 
         for name in &excluded_files {
             let file_path = release_dir.join(name);
-            fs::write(&file_path, b"fake content").unwrap();
-            fs::set_permissions(&file_path, fs::Permissions::from_mode(0o755)).unwrap();
+            fs::write(&file_path, b"fake content")?;
+            fs::set_permissions(&file_path, fs::Permissions::from_mode(0o755))?;
         }
 
-        // Also add a real executable to make sure it IS found
         let exe_path = release_dir.join("real-binary");
-        fs::write(&exe_path, b"real binary").unwrap();
-        fs::set_permissions(&exe_path, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(&exe_path, b"real binary")?;
+        fs::set_permissions(&exe_path, fs::Permissions::from_mode(0o755))?;
 
-        let result = preserve_executables(&project).unwrap();
+        let result = preserve_executables(&project)?;
         assert_eq!(result.len(), 1);
         assert!(
             result[0]
                 .destination
                 .file_name()
-                .unwrap()
+                .ok_or_else(|| anyhow::anyhow!("missing file name"))?
                 .to_str()
-                .unwrap()
+                .ok_or_else(|| anyhow::anyhow!("non-UTF-8 file name"))?
                 .contains("real-binary")
         );
+
+        Ok(())
     }
 
     #[test]
     #[cfg(unix)]
-    fn test_is_executable_permission_variants_unix() {
+    fn test_is_executable_permission_variants_unix() -> anyhow::Result<()> {
         use std::os::unix::fs::PermissionsExt;
 
-        let tmp = TempDir::new().unwrap();
+        let tmp = TempDir::new()?;
 
-        // Test user-only execute (0o100)
         let user_exe = tmp.path().join("user_exe");
-        fs::write(&user_exe, b"content").unwrap();
-        fs::set_permissions(&user_exe, fs::Permissions::from_mode(0o700)).unwrap();
-        let meta = user_exe.metadata().unwrap();
+        fs::write(&user_exe, b"content")?;
+        fs::set_permissions(&user_exe, fs::Permissions::from_mode(0o700))?;
+        let meta = user_exe.metadata()?;
         assert!(is_executable(&user_exe, &meta));
 
-        // Test group-only execute (0o010)
         let group_exe = tmp.path().join("group_exe");
-        fs::write(&group_exe, b"content").unwrap();
-        fs::set_permissions(&group_exe, fs::Permissions::from_mode(0o070)).unwrap();
-        let meta = group_exe.metadata().unwrap();
+        fs::write(&group_exe, b"content")?;
+        fs::set_permissions(&group_exe, fs::Permissions::from_mode(0o070))?;
+        let meta = group_exe.metadata()?;
         assert!(is_executable(&group_exe, &meta));
 
-        // Test other-only execute (0o001)
         let other_exe = tmp.path().join("other_exe");
-        fs::write(&other_exe, b"content").unwrap();
-        fs::set_permissions(&other_exe, fs::Permissions::from_mode(0o601)).unwrap();
-        let meta = other_exe.metadata().unwrap();
+        fs::write(&other_exe, b"content")?;
+        fs::set_permissions(&other_exe, fs::Permissions::from_mode(0o601))?;
+        let meta = other_exe.metadata()?;
         assert!(is_executable(&other_exe, &meta));
 
-        // Test no execute at all (0o644)
         let no_exe = tmp.path().join("no_exe");
-        fs::write(&no_exe, b"content").unwrap();
-        fs::set_permissions(&no_exe, fs::Permissions::from_mode(0o644)).unwrap();
-        let meta = no_exe.metadata().unwrap();
+        fs::write(&no_exe, b"content")?;
+        fs::set_permissions(&no_exe, fs::Permissions::from_mode(0o644))?;
+        let meta = no_exe.metadata()?;
         assert!(!is_executable(&no_exe, &meta));
+
+        Ok(())
     }
 
     #[test]
     #[cfg(unix)]
-    fn test_preserve_rust_debug_and_release_unix() {
+    fn test_preserve_rust_debug_and_release_unix() -> anyhow::Result<()> {
         use std::os::unix::fs::PermissionsExt;
 
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Rust);
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Rust)?;
 
-        // Create executables in both debug and release
         for profile in &["debug", "release"] {
             let profile_dir = tmp.path().join("target").join(profile);
-            fs::create_dir_all(&profile_dir).unwrap();
+            fs::create_dir_all(&profile_dir)?;
 
             let exe_path = profile_dir.join("my-binary");
-            fs::write(&exe_path, b"fake binary").unwrap();
-            fs::set_permissions(&exe_path, fs::Permissions::from_mode(0o755)).unwrap();
+            fs::write(&exe_path, b"fake binary")?;
+            fs::set_permissions(&exe_path, fs::Permissions::from_mode(0o755))?;
         }
 
-        let result = preserve_executables(&project).unwrap();
+        let result = preserve_executables(&project)?;
         assert_eq!(result.len(), 2);
 
-        // Verify both profiles have preserved executables
         let dest_names: Vec<_> = result
             .iter()
             .map(|p| p.destination.to_string_lossy().to_string())
@@ -559,87 +566,86 @@ mod tests {
 
         assert!(dest_names.iter().any(|d| d.contains("bin/release")));
         assert!(dest_names.iter().any(|d| d.contains("bin/debug")));
+
+        Ok(())
     }
 
     #[test]
     #[cfg(unix)]
-    fn test_preserve_python_so_extensions_unix() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Python);
+    fn test_preserve_python_so_extensions_unix() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Python)?;
 
-        // Create a build/ directory with .so extensions
         let build_dir = tmp.path().join("build/lib.linux-x86_64-3.9");
-        fs::create_dir_all(&build_dir).unwrap();
+        fs::create_dir_all(&build_dir)?;
 
         fs::write(
             build_dir.join("mymodule.cpython-39-x86_64-linux-gnu.so"),
             b"shared object",
-        )
-        .unwrap();
-        fs::write(build_dir.join("another.so"), b"shared object").unwrap();
+        )?;
+        fs::write(build_dir.join("another.so"), b"shared object")?;
 
-        let result = preserve_python_executables(&project).unwrap();
+        let result = preserve_python_executables(&project)?;
         assert_eq!(result.len(), 2);
 
         for preserved in &result {
             assert!(preserved.destination.exists());
             assert!(preserved.destination.starts_with(tmp.path().join("bin")));
         }
+
+        Ok(())
     }
 
     // ── Windows-specific tests ──────────────────────────────────────────
 
     #[test]
     #[cfg(windows)]
-    fn test_is_executable_case_insensitive_exe_windows() {
-        let tmp = TempDir::new().unwrap();
+    fn test_is_executable_case_insensitive_exe_windows() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
 
-        // .exe
         let exe = tmp.path().join("app.exe");
-        fs::write(&exe, b"content").unwrap();
-        let meta = exe.metadata().unwrap();
+        fs::write(&exe, b"content")?;
+        let meta = exe.metadata()?;
         assert!(is_executable(&exe, &meta));
 
-        // .EXE
         let exe_upper = tmp.path().join("app.EXE");
-        fs::write(&exe_upper, b"content").unwrap();
-        let meta = exe_upper.metadata().unwrap();
+        fs::write(&exe_upper, b"content")?;
+        let meta = exe_upper.metadata()?;
         assert!(is_executable(&exe_upper, &meta));
 
-        // .Exe
         let exe_mixed = tmp.path().join("app.Exe");
-        fs::write(&exe_mixed, b"content").unwrap();
-        let meta = exe_mixed.metadata().unwrap();
+        fs::write(&exe_mixed, b"content")?;
+        let meta = exe_mixed.metadata()?;
         assert!(is_executable(&exe_mixed, &meta));
 
-        // Not an exe
         let not_exe = tmp.path().join("app.txt");
-        fs::write(&not_exe, b"content").unwrap();
-        let meta = not_exe.metadata().unwrap();
+        fs::write(&not_exe, b"content")?;
+        let meta = not_exe.metadata()?;
         assert!(!is_executable(&not_exe, &meta));
 
-        // No extension
         let no_ext = tmp.path().join("app");
-        fs::write(&no_ext, b"content").unwrap();
-        let meta = no_ext.metadata().unwrap();
+        fs::write(&no_ext, b"content")?;
+        let meta = no_ext.metadata()?;
         assert!(!is_executable(&no_ext, &meta));
+
+        Ok(())
     }
 
     #[test]
     #[cfg(windows)]
-    fn test_preserve_rust_debug_and_release_windows() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Rust);
+    fn test_preserve_rust_debug_and_release_windows() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Rust)?;
 
         for profile in &["debug", "release"] {
             let profile_dir = tmp.path().join("target").join(profile);
-            fs::create_dir_all(&profile_dir).unwrap();
+            fs::create_dir_all(&profile_dir)?;
 
             let exe_path = profile_dir.join("my-binary.exe");
-            fs::write(&exe_path, b"fake binary").unwrap();
+            fs::write(&exe_path, b"fake binary")?;
         }
 
-        let result = preserve_executables(&project).unwrap();
+        let result = preserve_executables(&project)?;
         assert_eq!(result.len(), 2);
 
         let dest_names: Vec<_> = result
@@ -649,101 +655,102 @@ mod tests {
 
         assert!(dest_names.iter().any(|d| d.contains("release")));
         assert!(dest_names.iter().any(|d| d.contains("debug")));
+
+        Ok(())
     }
 
     #[test]
     #[cfg(windows)]
-    fn test_find_rust_executables_excludes_metadata_windows() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Rust);
+    fn test_find_rust_executables_excludes_metadata_windows() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Rust)?;
 
         let release_dir = tmp.path().join("target/release");
-        fs::create_dir_all(&release_dir).unwrap();
+        fs::create_dir_all(&release_dir)?;
 
-        // Files with excluded extensions should be skipped
-        fs::write(release_dir.join("dep.d"), b"dep info").unwrap();
-        fs::write(release_dir.join("lib.dll"), b"library").unwrap();
-        fs::write(release_dir.join("debug.pdb"), b"symbols").unwrap();
-        fs::write(release_dir.join("lib.rlib"), b"rust lib").unwrap();
+        fs::write(release_dir.join("dep.d"), b"dep info")?;
+        fs::write(release_dir.join("lib.dll"), b"library")?;
+        fs::write(release_dir.join("debug.pdb"), b"symbols")?;
+        fs::write(release_dir.join("lib.rlib"), b"rust lib")?;
 
-        // Only .exe should be found
-        fs::write(release_dir.join("my-binary.exe"), b"real binary").unwrap();
+        fs::write(release_dir.join("my-binary.exe"), b"real binary")?;
 
-        let result = preserve_executables(&project).unwrap();
+        let result = preserve_executables(&project)?;
         assert_eq!(result.len(), 1);
         assert!(
             result[0]
                 .destination
                 .file_name()
-                .unwrap()
+                .ok_or_else(|| anyhow::anyhow!("missing file name"))?
                 .to_str()
-                .unwrap()
+                .ok_or_else(|| anyhow::anyhow!("non-UTF-8 file name"))?
                 .contains("my-binary.exe")
         );
+
+        Ok(())
     }
 
     #[test]
     #[cfg(windows)]
-    fn test_find_multiple_rust_executables_windows() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Rust);
+    fn test_find_multiple_rust_executables_windows() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Rust)?;
 
         let release_dir = tmp.path().join("target/release");
-        fs::create_dir_all(&release_dir).unwrap();
+        fs::create_dir_all(&release_dir)?;
 
-        // Create multiple .exe files
         for name in &["binary-a.exe", "binary-b.exe", "binary-c.exe"] {
-            fs::write(release_dir.join(name), b"fake binary").unwrap();
+            fs::write(release_dir.join(name), b"fake binary")?;
         }
 
-        let result = preserve_executables(&project).unwrap();
+        let result = preserve_executables(&project)?;
         assert_eq!(result.len(), 3);
+
+        Ok(())
     }
 
     #[test]
     #[cfg(windows)]
-    fn test_preserve_python_pyd_extensions_windows() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Python);
+    fn test_preserve_python_pyd_extensions_windows() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Python)?;
 
         let build_dir = tmp.path().join("build/lib.win-amd64-3.9");
-        fs::create_dir_all(&build_dir).unwrap();
+        fs::create_dir_all(&build_dir)?;
 
         fs::write(
             build_dir.join("mymodule.cp39-win_amd64.pyd"),
             b"python extension",
-        )
-        .unwrap();
-        fs::write(build_dir.join("another.pyd"), b"python extension").unwrap();
+        )?;
+        fs::write(build_dir.join("another.pyd"), b"python extension")?;
 
-        let result = preserve_python_executables(&project).unwrap();
+        let result = preserve_python_executables(&project)?;
         assert_eq!(result.len(), 2);
 
         for preserved in &result {
             assert!(preserved.destination.exists());
         }
+
+        Ok(())
     }
 
     // ── Cross-platform tests (run on all OS) ────────────────────────────
 
     #[test]
-    fn test_preserve_python_whl_files() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Python);
+    fn test_preserve_python_whl_files() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Python)?;
 
-        // Create dist/ with .whl files
         let dist_dir = tmp.path().join("dist");
-        fs::create_dir_all(&dist_dir).unwrap();
+        fs::create_dir_all(&dist_dir)?;
 
         fs::write(
             dist_dir.join("mypackage-1.0.0-py3-none-any.whl"),
             b"wheel content",
-        )
-        .unwrap();
-        fs::write(dist_dir.join("mypackage-1.0.0.tar.gz"), b"tarball content").unwrap();
+        )?;
+        fs::write(dist_dir.join("mypackage-1.0.0.tar.gz"), b"tarball content")?;
 
-        let result = preserve_python_executables(&project).unwrap();
-        // Only .whl should be preserved, not .tar.gz
+        let result = preserve_python_executables(&project)?;
         assert_eq!(result.len(), 1);
         assert!(
             result[0]
@@ -751,72 +758,77 @@ mod tests {
                 .extension()
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("whl"))
         );
+
+        Ok(())
     }
 
     #[test]
-    fn test_preserve_python_no_dist_no_build() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Python);
+    fn test_preserve_python_no_dist_no_build() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Python)?;
 
-        // No dist/ or build/ dirs exist
-        let result = preserve_python_executables(&project).unwrap();
+        let result = preserve_python_executables(&project)?;
         assert!(result.is_empty());
+
+        Ok(())
     }
 
     #[test]
-    fn test_preserve_python_empty_dist_and_build() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Python);
+    fn test_preserve_python_empty_dist_and_build() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Python)?;
 
-        // Create empty dist/ and build/ directories
-        fs::create_dir_all(tmp.path().join("dist")).unwrap();
-        fs::create_dir_all(tmp.path().join("build")).unwrap();
+        fs::create_dir_all(tmp.path().join("dist"))?;
+        fs::create_dir_all(tmp.path().join("build"))?;
 
-        let result = preserve_python_executables(&project).unwrap();
+        let result = preserve_python_executables(&project)?;
         assert!(result.is_empty());
+
+        Ok(())
     }
 
     #[test]
-    fn test_preserve_python_whl_and_extensions_combined() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Python);
+    fn test_preserve_python_whl_and_extensions_combined() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Python)?;
 
-        // Create dist/ with .whl files
         let dist_dir = tmp.path().join("dist");
-        fs::create_dir_all(&dist_dir).unwrap();
-        fs::write(dist_dir.join("mypackage-1.0.0-py3-none-any.whl"), b"wheel").unwrap();
+        fs::create_dir_all(&dist_dir)?;
+        fs::write(dist_dir.join("mypackage-1.0.0-py3-none-any.whl"), b"wheel")?;
 
-        // Create build/ with extensions (.so on Unix, .pyd on Windows)
         let build_dir = tmp.path().join("build/lib");
-        fs::create_dir_all(&build_dir).unwrap();
+        fs::create_dir_all(&build_dir)?;
 
         #[cfg(unix)]
-        fs::write(build_dir.join("native.so"), b"shared object").unwrap();
+        fs::write(build_dir.join("native.so"), b"shared object")?;
 
         #[cfg(windows)]
-        fs::write(build_dir.join("native.pyd"), b"python extension").unwrap();
+        fs::write(build_dir.join("native.pyd"), b"python extension")?;
 
-        let result = preserve_python_executables(&project).unwrap();
-        // Should find both the .whl and the platform-specific extension
+        let result = preserve_python_executables(&project)?;
         assert_eq!(result.len(), 2);
+
+        Ok(())
     }
 
     #[test]
-    fn test_preserve_executables_returns_correct_source_paths() {
-        let tmp = TempDir::new().unwrap();
-        let project = create_test_project(&tmp, ProjectType::Python);
+    fn test_preserve_executables_returns_correct_source_paths() -> anyhow::Result<()> {
+        let tmp = TempDir::new()?;
+        let project = create_test_project(&tmp, ProjectType::Python)?;
 
         let dist_dir = tmp.path().join("dist");
-        fs::create_dir_all(&dist_dir).unwrap();
+        fs::create_dir_all(&dist_dir)?;
         let whl_path = dist_dir.join("pkg-1.0-py3-none-any.whl");
-        fs::write(&whl_path, b"wheel content").unwrap();
+        fs::write(&whl_path, b"wheel content")?;
 
-        let result = preserve_python_executables(&project).unwrap();
+        let result = preserve_python_executables(&project)?;
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].source, whl_path);
         assert_eq!(
             result[0].destination,
             tmp.path().join("bin/pkg-1.0-py3-none-any.whl")
         );
+
+        Ok(())
     }
 }

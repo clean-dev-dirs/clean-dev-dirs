@@ -17,7 +17,7 @@ use crate::executables;
 use crate::project::{Project, Projects};
 
 /// Strategy for removing build directories.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum RemovalStrategy {
     /// Permanently delete the directory (default, uses `fs::remove_dir_all`).
     Permanent,
@@ -41,6 +41,7 @@ impl RemovalStrategy {
 /// Structured result returned after a cleanup operation.
 ///
 /// Contains all the data needed to render either human-readable or JSON output.
+#[derive(Debug)]
 pub struct CleanResult {
     /// Number of projects successfully cleaned.
     pub success_count: usize,
@@ -60,6 +61,7 @@ pub struct CleanResult {
 /// The `Cleaner` struct provides methods for removing build directories
 /// (such as `target/` for Rust projects and `node_modules/` for Node.js projects)
 /// with parallel processing, progress reporting, and comprehensive error handling.
+#[derive(Debug)]
 pub struct Cleaner;
 
 impl Cleaner {
@@ -138,12 +140,11 @@ impl Cleaner {
             println!("\n{}", action.cyan());
 
             let pb = ProgressBar::new(total_projects as u64);
-            pb.set_style(
-                ProgressStyle::default_bar()
-                    .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {msg}")
-                    .unwrap()
-                    .progress_chars("█▉▊▋▌▍▎▏  "),
-            );
+            if let Ok(style) = ProgressStyle::default_bar()
+                .template("[{elapsed_precise}] {bar:40.cyan/blue} {pos}/{len} {msg}")
+            {
+                pb.set_style(style.progress_chars("█▉▊▋▌▍▎▏  "));
+            }
             pb
         };
 
@@ -161,7 +162,9 @@ impl Cleaner {
 
             match result {
                 Ok(freed_size) => {
-                    *cleaned_size.lock().unwrap() += freed_size;
+                    if let Ok(mut size) = cleaned_size.lock() {
+                        *size += freed_size;
+                    }
 
                     progress.set_message(format!(
                         "{action} {} ({})",
@@ -174,10 +177,12 @@ impl Cleaner {
                     ));
                 }
                 Err(e) => {
-                    errors.lock().unwrap().push(format!(
-                        "Failed to clean {}: {e}",
-                        project.root_path.display()
-                    ));
+                    if let Ok(mut errs) = errors.lock() {
+                        errs.push(format!(
+                            "Failed to clean {}: {e}",
+                            project.root_path.display()
+                        ));
+                    }
                 }
             }
 
@@ -190,11 +195,14 @@ impl Cleaner {
         };
         progress.finish_with_message(finish_msg);
 
-        let final_cleaned_size = *cleaned_size.lock().unwrap();
+        let final_cleaned_size = cleaned_size.lock().map_or(0, |s| *s);
         let errors = Arc::try_unwrap(errors)
-            .expect("all parallel tasks should be complete")
+            .unwrap_or_else(|arc| {
+                arc.lock()
+                    .map_or_else(|_| Mutex::new(Vec::new()), |g| Mutex::new(g.clone()))
+            })
             .into_inner()
-            .unwrap();
+            .unwrap_or_default();
 
         let success_count = total_projects - errors.len();
 

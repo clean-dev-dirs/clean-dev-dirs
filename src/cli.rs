@@ -156,7 +156,7 @@ struct ScanningArgs {
 
 /// Top-level subcommands.
 #[derive(Subcommand)]
-pub enum Commands {
+pub(crate) enum Commands {
     /// Inspect or initialise the configuration file
     Config {
         #[command(subcommand)]
@@ -166,7 +166,7 @@ pub enum Commands {
 
 /// Subcommands for `config`.
 #[derive(Subcommand)]
-pub enum ConfigCommand {
+pub(crate) enum ConfigCommand {
     /// Print the effective configuration (file values + defaults for unset keys)
     Show,
     /// Write a default config.toml if none exists yet
@@ -189,7 +189,7 @@ pub enum ConfigCommand {
 )]
 #[command(version)]
 #[command(author)]
-pub struct Cli {
+pub(crate) struct Cli {
     /// Subcommand (e.g. `config`)
     #[command(subcommand)]
     pub subcommand: Option<Commands>,
@@ -233,7 +233,7 @@ pub struct Cli {
 impl Cli {
     /// Whether `--json` structured output mode is enabled.
     #[must_use]
-    pub const fn json(&self) -> bool {
+    pub(crate) const fn json(&self) -> bool {
         self.json
     }
 
@@ -254,7 +254,7 @@ impl Cli {
     /// assert_eq!(args.directories(&FileConfig::default()), vec![PathBuf::from("/path/a"), PathBuf::from("/path/b")]);
     /// ```
     #[must_use]
-    pub fn directories(&self, config: &FileConfig) -> Vec<PathBuf> {
+    pub(crate) fn directories(&self, config: &FileConfig) -> Vec<PathBuf> {
         if !self.dirs.is_empty() {
             return self.dirs.clone();
         }
@@ -287,7 +287,7 @@ impl Cli {
     /// assert_eq!(args.project_filter(&FileConfig::default()), ProjectFilter::Rust);
     /// ```
     #[must_use]
-    pub fn project_filter(&self, config: &FileConfig) -> ProjectFilter {
+    pub(crate) fn project_filter(&self, config: &FileConfig) -> ProjectFilter {
         self.project_type
             .or_else(|| {
                 config
@@ -316,7 +316,7 @@ impl Cli {
     /// assert!(options.interactive);
     /// ```
     #[must_use]
-    pub fn execution_options(&self, config: &FileConfig) -> ExecutionOptions {
+    pub(crate) fn execution_options(&self, config: &FileConfig) -> ExecutionOptions {
         ExecutionOptions {
             dry_run: self.execution.dry_run || config.execution.dry_run.unwrap_or(false),
             interactive: self.execution.interactive
@@ -346,7 +346,7 @@ impl Cli {
     /// assert_eq!(options.threads, 4);
     /// ```
     #[must_use]
-    pub fn scan_options(&self, config: &FileConfig) -> ScanOptions {
+    pub(crate) fn scan_options(&self, config: &FileConfig) -> ScanOptions {
         let mut skip = config.scanning.skip.clone().unwrap_or_default();
         skip.extend(self.scanning.skip.clone());
 
@@ -379,7 +379,7 @@ impl Cli {
     /// assert_eq!(options.keep_days, 30);
     /// ```
     #[must_use]
-    pub fn filter_options(&self, config: &FileConfig) -> FilterOptions {
+    pub(crate) fn filter_options(&self, config: &FileConfig) -> FilterOptions {
         FilterOptions {
             keep_size: self
                 .filtering
@@ -417,7 +417,7 @@ impl Cli {
     /// assert!(sort_opts.reverse);
     /// ```
     #[must_use]
-    pub fn sort_options(&self, config: &FileConfig) -> SortOptions {
+    pub(crate) fn sort_options(&self, config: &FileConfig) -> SortOptions {
         SortOptions {
             criteria: self.filtering.sort.or_else(|| {
                 config

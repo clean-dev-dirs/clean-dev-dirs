@@ -16,7 +16,7 @@ license = "Apache-2.0 OR MIT"
 name = "clean-dev-dirs"
 readme = "README.md"
 repository = "https://github.com/clean-dev-dirs/clean-dev-dirs"
-version = "2.7.0"
+version = "2.7.1"
 
 [lib]
 name = "clean_dev_dirs"
@@ -50,3 +50,26 @@ tempfile = "3.26"
 
 [build-dependencies]
 hooksmith = "1.15.0"
+
+[lints.rust]
+dead_code                     = "warn"
+missing_debug_implementations = "warn"
+unreachable_pub               = "warn"
+unused_imports                = "warn"
+unused_variables              = "warn"
+
+[lints.clippy]
+correctness        = { level = "deny", priority = -1 }
+suspicious         = { level = "deny", priority = -1 }
+complexity         = { level = "deny", priority = -1 }
+perf               = { level = "deny", priority = -1 }
+style              = { level = "deny", priority = -1 }
+pedantic           = { level = "deny", priority = -1 }
+nursery            = { level = "deny", priority = -1 }
+redundant_pub_crate = "allow"
+
+# For library code
+expect_used = "warn"
+panic       = "warn"
+todo        = "warn"
+unwrap_used = "warn"

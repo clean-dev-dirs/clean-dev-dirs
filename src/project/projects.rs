@@ -20,6 +20,7 @@ use super::Project;
 /// higher-level operations such as interactive selection, summary reporting,
 /// and parallel processing support. It serves as the main data structure
 /// for managing collections of projects throughout the application.
+#[derive(Debug)]
 pub struct Projects(Vec<Project>);
 
 impl From<Vec<Project>> for Projects {

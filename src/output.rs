@@ -13,7 +13,7 @@ use serde::Serialize;
 use crate::project::{Project, ProjectType};
 
 /// Top-level JSON output emitted when `--json` is active.
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct JsonOutput {
     /// The execution mode: `"dry_run"` or `"cleanup"`.
     pub mode: String,
@@ -31,7 +31,7 @@ pub struct JsonOutput {
 }
 
 /// A single project entry in the JSON output.
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct JsonProjectEntry {
     /// Project name extracted from config files, or `null`.
     pub name: Option<String>,
@@ -54,7 +54,7 @@ pub struct JsonProjectEntry {
 }
 
 /// Aggregated summary across all matched projects.
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct JsonSummary {
     /// Total number of projects found.
     pub total_projects: usize,
@@ -70,7 +70,7 @@ pub struct JsonSummary {
 }
 
 /// Per-project-type count and size.
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct JsonTypeSummary {
     /// Number of projects of this type.
     pub count: usize,
@@ -83,7 +83,7 @@ pub struct JsonTypeSummary {
 }
 
 /// Results of a cleanup operation.
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct JsonCleanupResult {
     /// Number of projects successfully cleaned.
     pub success_count: usize,
