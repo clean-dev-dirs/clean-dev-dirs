@@ -8,12 +8,15 @@ use std::{
     path::PathBuf,
 };
 
+use serde::Serialize;
+
 /// Enumeration of supported development project types.
 ///
 /// This enum distinguishes between different types of development projects
 /// that the tool can detect and clean. Each project type has its own
 /// characteristic files and build directories.
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ProjectType {
     /// Rust project with Cargo.toml and target/ directory
     ///
@@ -38,13 +41,87 @@ pub enum ProjectType {
     /// Go projects are identified by the presence of both a `go.mod`
     /// file and a `vendor/` directory in the same location.
     Go,
+
+    /// Java/Kotlin project with pom.xml or build.gradle and target/ or build/ directory
+    ///
+    /// Java/Kotlin projects are identified by the presence of Maven (`pom.xml`)
+    /// or Gradle (`build.gradle`, `build.gradle.kts`) configuration files along
+    /// with their respective build output directories.
+    Java,
+
+    /// C/C++ project with CMakeLists.txt or Makefile and build/ directory
+    ///
+    /// C/C++ projects are identified by the presence of build system files
+    /// (`CMakeLists.txt` or `Makefile`) alongside a `build/` directory.
+    Cpp,
+
+    /// Swift project with Package.swift and .build/ directory
+    ///
+    /// Swift Package Manager projects are identified by the presence of a
+    /// `Package.swift` manifest and the `.build/` directory.
+    Swift,
+
+    /// .NET/C# project with .csproj and bin/ + obj/ directories
+    ///
+    /// .NET projects are identified by the presence of `.csproj` project files
+    /// alongside `bin/` and/or `obj/` output directories.
+    DotNet,
+
+    /// Ruby project with Gemfile and .bundle/ or vendor/bundle/ directory
+    ///
+    /// Ruby projects are identified by the presence of a `Gemfile`
+    /// alongside a `.bundle/` or `vendor/bundle/` directory.
+    Ruby,
+
+    /// Elixir project with mix.exs and _build/ directory
+    ///
+    /// Elixir projects are identified by the presence of a `mix.exs`
+    /// file and a `_build/` directory.
+    Elixir,
+
+    /// Deno project with deno.json or deno.jsonc and vendor/ or `node_modules`/ directory
+    ///
+    /// Deno projects are identified by the presence of a `deno.json` or `deno.jsonc`
+    /// file alongside a `vendor/` directory (from `deno vendor`) or a `node_modules/`
+    /// directory (Deno 2 npm support without a `package.json`).
+    Deno,
+
+    /// PHP project with composer.json and vendor/ directory
+    ///
+    /// PHP projects are identified by the presence of a `composer.json`
+    /// file and a `vendor/` directory (Composer dependencies).
+    Php,
+
+    /// Haskell project with stack.yaml or cabal.project and .stack-work/ or dist-newstyle/
+    ///
+    /// Haskell projects are identified by either Stack (`stack.yaml` + `.stack-work/`)
+    /// or Cabal (`cabal.project` or `*.cabal` + `dist-newstyle/`).
+    Haskell,
+
+    /// Dart/Flutter project with pubspec.yaml and `.dart_tool`/ or build/
+    ///
+    /// Dart/Flutter projects are identified by the presence of a `pubspec.yaml`
+    /// file alongside a `.dart_tool/` directory and/or a `build/` directory.
+    Dart,
+
+    /// Zig project with build.zig and zig-cache/ or zig-out/
+    ///
+    /// Zig projects are identified by the presence of a `build.zig`
+    /// file alongside a `zig-cache/` or `zig-out/` directory.
+    Zig,
+
+    /// Scala project with build.sbt and target/ directory
+    ///
+    /// Scala projects are identified by the presence of a `build.sbt`
+    /// file and a `target/` directory.
+    Scala,
 }
 
 /// Information about build artifacts that can be cleaned.
 ///
 /// This struct contains metadata about the build directory or artifacts
 /// that are candidates for cleanup, including their location and total size.
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct BuildArtifacts {
     /// Path to the build directory (target/ or `node_modules`/)
     ///
@@ -65,7 +142,7 @@ pub struct BuildArtifacts {
 /// This struct encapsulates all information about a development project,
 /// including its type, location, build artifacts, and metadata extracted
 /// from project configuration files.
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct Project {
     /// Type of the project (Rust or Node.js)
     pub kind: ProjectType,
@@ -76,11 +153,11 @@ pub struct Project {
     /// For Node.js projects, this is the directory containing `package.json`.
     pub root_path: PathBuf,
 
-    /// The build directory to be cleaned and its metadata
+    /// The build directories to be cleaned and their metadata.
     ///
-    /// Contains information about the `target/` or `node_modules/` directory
-    /// that is a candidate for cleanup, including its path and total size.
-    pub build_arts: BuildArtifacts,
+    /// Most project types have a single artifact directory, but some (e.g. Python,
+    /// .NET, Ruby) can produce several cleanable directories simultaneously.
+    pub build_arts: Vec<BuildArtifacts>,
 
     /// Name of the project extracted from configuration files
     ///
@@ -113,10 +190,10 @@ impl Project {
     /// ```no_run
     /// # use std::path::PathBuf;
     /// # use crate::project::{Project, ProjectType, BuildArtifacts};
-    /// let build_arts = BuildArtifacts {
+    /// let build_arts = vec![BuildArtifacts {
     ///     path: PathBuf::from("/path/to/project/target"),
     ///     size: 1024,
-    /// };
+    /// }];
     ///
     /// let project = Project::new(
     ///     ProjectType::Rust,
@@ -126,10 +203,10 @@ impl Project {
     /// );
     /// ```
     #[must_use]
-    pub fn new(
+    pub const fn new(
         kind: ProjectType,
         root_path: PathBuf,
-        build_arts: BuildArtifacts,
+        build_arts: Vec<BuildArtifacts>,
         name: Option<String>,
     ) -> Self {
         Self {
@@ -138,6 +215,12 @@ impl Project {
             build_arts,
             name,
         }
+    }
+
+    /// Return the sum of sizes across all build artifact directories.
+    #[must_use]
+    pub fn total_size(&self) -> u64 {
+        self.build_arts.iter().map(|a| a.size).sum()
     }
 }
 
@@ -156,6 +239,10 @@ impl Display for Project {
     /// - `📦 my-node-app (/path/to/app)`
     /// - `🐍 my-python-project (/path/to/project)`
     /// - `🐹 my-go-project (/path/to/project)`
+    /// - `☕ my-java-project (/path/to/project)`
+    /// - `⚙️ my-cpp-project (/path/to/project)`
+    /// - `🐦 my-swift-project (/path/to/project)`
+    /// - `🔷 my-dotnet-project (/path/to/project)`
     /// - `🦀 /path/to/unnamed/project` (when no name is available)
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let icon = match self.kind {
@@ -163,6 +250,18 @@ impl Display for Project {
             ProjectType::Node => "📦",
             ProjectType::Python => "🐍",
             ProjectType::Go => "🐹",
+            ProjectType::Java => "☕",
+            ProjectType::Cpp => "⚙️",
+            ProjectType::Swift => "🐦",
+            ProjectType::DotNet => "🔷",
+            ProjectType::Ruby => "💎",
+            ProjectType::Elixir => "💧",
+            ProjectType::Deno => "🦕",
+            ProjectType::Php => "🐘",
+            ProjectType::Haskell => "λ",
+            ProjectType::Dart => "🎯",
+            ProjectType::Zig => "⚡",
+            ProjectType::Scala => "🔴",
         };
 
         if let Some(name) = &self.name {
@@ -197,7 +296,7 @@ mod tests {
         Project::new(
             kind,
             PathBuf::from(root_path),
-            create_test_build_artifacts(build_path, size),
+            vec![create_test_build_artifacts(build_path, size)],
             name,
         )
     }
@@ -208,10 +307,34 @@ mod tests {
         assert_eq!(ProjectType::Node, ProjectType::Node);
         assert_eq!(ProjectType::Python, ProjectType::Python);
         assert_eq!(ProjectType::Go, ProjectType::Go);
+        assert_eq!(ProjectType::Java, ProjectType::Java);
+        assert_eq!(ProjectType::Cpp, ProjectType::Cpp);
+        assert_eq!(ProjectType::Swift, ProjectType::Swift);
+        assert_eq!(ProjectType::DotNet, ProjectType::DotNet);
+        assert_eq!(ProjectType::Ruby, ProjectType::Ruby);
+        assert_eq!(ProjectType::Elixir, ProjectType::Elixir);
+        assert_eq!(ProjectType::Deno, ProjectType::Deno);
+        assert_eq!(ProjectType::Php, ProjectType::Php);
+        assert_eq!(ProjectType::Haskell, ProjectType::Haskell);
+        assert_eq!(ProjectType::Dart, ProjectType::Dart);
+        assert_eq!(ProjectType::Zig, ProjectType::Zig);
+        assert_eq!(ProjectType::Scala, ProjectType::Scala);
 
         assert_ne!(ProjectType::Rust, ProjectType::Node);
         assert_ne!(ProjectType::Node, ProjectType::Python);
         assert_ne!(ProjectType::Python, ProjectType::Go);
+        assert_ne!(ProjectType::Go, ProjectType::Java);
+        assert_ne!(ProjectType::Java, ProjectType::Cpp);
+        assert_ne!(ProjectType::Cpp, ProjectType::Swift);
+        assert_ne!(ProjectType::Swift, ProjectType::DotNet);
+        assert_ne!(ProjectType::DotNet, ProjectType::Ruby);
+        assert_ne!(ProjectType::Ruby, ProjectType::Elixir);
+        assert_ne!(ProjectType::Elixir, ProjectType::Deno);
+        assert_ne!(ProjectType::Deno, ProjectType::Php);
+        assert_ne!(ProjectType::Php, ProjectType::Haskell);
+        assert_ne!(ProjectType::Haskell, ProjectType::Dart);
+        assert_ne!(ProjectType::Dart, ProjectType::Zig);
+        assert_ne!(ProjectType::Zig, ProjectType::Scala);
     }
 
     #[test]
@@ -235,10 +358,10 @@ mod tests {
         assert_eq!(project.kind, ProjectType::Rust);
         assert_eq!(project.root_path, PathBuf::from("/path/to/project"));
         assert_eq!(
-            project.build_arts.path,
+            project.build_arts[0].path,
             PathBuf::from("/path/to/project/target")
         );
-        assert_eq!(project.build_arts.size, 1024);
+        assert_eq!(project.build_arts[0].size, 1024);
         assert_eq!(project.name, Some("test-project".to_string()));
     }
 
@@ -287,6 +410,83 @@ mod tests {
 
         let expected = "🐹 my-go-app (/path/to/go-project)";
         assert_eq!(format!("{go_project}"), expected);
+
+        let java_project = create_test_project(
+            ProjectType::Java,
+            "/path/to/java-project",
+            "/path/to/java-project/target",
+            8192,
+            Some("my-java-app".to_string()),
+        );
+
+        let expected = "☕ my-java-app (/path/to/java-project)";
+        assert_eq!(format!("{java_project}"), expected);
+
+        let cpp_project = create_test_project(
+            ProjectType::Cpp,
+            "/path/to/cpp-project",
+            "/path/to/cpp-project/build",
+            2048,
+            Some("my-cpp-app".to_string()),
+        );
+
+        let expected = "⚙\u{fe0f} my-cpp-app (/path/to/cpp-project)";
+        assert_eq!(format!("{cpp_project}"), expected);
+
+        let swift_project = create_test_project(
+            ProjectType::Swift,
+            "/path/to/swift-project",
+            "/path/to/swift-project/.build",
+            1024,
+            Some("my-swift-app".to_string()),
+        );
+
+        let expected = "🐦 my-swift-app (/path/to/swift-project)";
+        assert_eq!(format!("{swift_project}"), expected);
+
+        let dotnet_project = create_test_project(
+            ProjectType::DotNet,
+            "/path/to/dotnet-project",
+            "/path/to/dotnet-project/obj",
+            4096,
+            Some("my-dotnet-app".to_string()),
+        );
+
+        let expected = "🔷 my-dotnet-app (/path/to/dotnet-project)";
+        assert_eq!(format!("{dotnet_project}"), expected);
+
+        let ruby_project = create_test_project(
+            ProjectType::Ruby,
+            "/path/to/ruby-project",
+            "/path/to/ruby-project/vendor/bundle",
+            2048,
+            Some("my-ruby-gem".to_string()),
+        );
+
+        let expected = "💎 my-ruby-gem (/path/to/ruby-project)";
+        assert_eq!(format!("{ruby_project}"), expected);
+
+        let elixir_project = create_test_project(
+            ProjectType::Elixir,
+            "/path/to/elixir-project",
+            "/path/to/elixir-project/_build",
+            1024,
+            Some("my_elixir_app".to_string()),
+        );
+
+        let expected = "💧 my_elixir_app (/path/to/elixir-project)";
+        assert_eq!(format!("{elixir_project}"), expected);
+
+        let deno_project = create_test_project(
+            ProjectType::Deno,
+            "/path/to/deno-project",
+            "/path/to/deno-project/vendor",
+            512,
+            Some("my-deno-app".to_string()),
+        );
+
+        let expected = "🦕 my-deno-app (/path/to/deno-project)";
+        assert_eq!(format!("{deno_project}"), expected);
     }
 
     #[test]
@@ -328,8 +528,8 @@ mod tests {
 
         assert_eq!(original.kind, cloned.kind);
         assert_eq!(original.root_path, cloned.root_path);
-        assert_eq!(original.build_arts.path, cloned.build_arts.path);
-        assert_eq!(original.build_arts.size, cloned.build_arts.size);
+        assert_eq!(original.build_arts[0].path, cloned.build_arts[0].path);
+        assert_eq!(original.build_arts[0].size, cloned.build_arts[0].size);
         assert_eq!(original.name, cloned.name);
     }
 
@@ -352,7 +552,7 @@ mod tests {
             Some("empty-project".to_string()),
         );
 
-        assert_eq!(project.build_arts.size, 0);
+        assert_eq!(project.total_size(), 0);
         assert_eq!(format!("{project}"), "🐍 empty-project (/empty/project)");
     }
 
@@ -367,6 +567,6 @@ mod tests {
             Some("huge-project".to_string()),
         );
 
-        assert_eq!(project.build_arts.size, large_size);
+        assert_eq!(project.total_size(), large_size);
     }
 }

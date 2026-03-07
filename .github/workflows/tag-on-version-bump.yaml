@@ -1,0 +1,68 @@
+name: Tag on Version Bump
+
+on:
+    push:
+        branches:
+            - main
+
+permissions:
+    contents: write
+
+jobs:
+    create-tag-if-version-changed:
+        name: Create tag when Cargo.toml version changes
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  fetch-tags: true
+                  token: ${{ secrets.PAT_TOKEN }}
+
+            - name: Determine previous and current versions
+              id: versions
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  BEFORE_SHA="${{ github.event.before }}"
+
+                  if git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+                    PREV_FILE=$(git show "${BEFORE_SHA}:Cargo.toml" || echo "")
+                  else
+                    PREV_FILE=""
+                  fi
+
+                  CURR_FILE=$(cat Cargo.toml)
+
+                  # Extract the first version entry of the top-level package
+                  PREV_VERSION=$(printf "%s\n" "$PREV_FILE" | sed -n 's/^version\s*=\s*"\(.*\)"/\1/p' | head -n1 || true)
+                  CURR_VERSION=$(printf "%s\n" "$CURR_FILE" | sed -n 's/^version\s*=\s*"\(.*\)"/\1/p' | head -n1)
+
+                  echo "prev=$PREV_VERSION" >> "$GITHUB_OUTPUT"
+                  echo "curr=$CURR_VERSION" >> "$GITHUB_OUTPUT"
+
+            - name: Create and push tag if version changed
+              if: steps.versions.outputs.prev != steps.versions.outputs.curr && steps.versions.outputs.curr != ''
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  VERSION='${{ steps.versions.outputs.curr }}'
+
+                  # Ensure we have up-to-date tags
+                  git fetch --tags --force
+
+                  if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+                    echo "Tag v${VERSION} already exists. Skipping."
+                    exit 0
+                  fi
+
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+                  git tag "v${VERSION}"
+                  git push origin "v${VERSION}"
+
+                  echo "Created and pushed tag v${VERSION}. This will trigger the release workflow."

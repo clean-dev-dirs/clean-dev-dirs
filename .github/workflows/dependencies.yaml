@@ -1,0 +1,58 @@
+name: Update Dependencies
+
+on:
+  schedule:
+    # Run at 00:00 UTC on Mondays and Thursdays
+    - cron: "0 0 * * 1,4"
+  workflow_dispatch: # Allow manual triggering
+
+jobs:
+  update-deps:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install cargo-edit
+        run: cargo install cargo-edit
+
+      - name: Update dependencies
+        run: |
+          cargo upgrade --recursive
+          cargo update --recursive
+
+      - name: Check for changes
+        id: git-check
+        run: |
+          git diff --quiet || echo "changes=true" >> $GITHUB_OUTPUT
+
+      - name: Create Pull Request
+        if: steps.git-check.outputs.changes == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          assignees: TomPlanche
+          base: main
+          body: |
+            Automated dependency updates:
+            - Updated all dependencies to their latest versions
+            - Please review the changes before merging
+          branch: update-dependencies
+          commit-message: "(chore on update-dependencies) update dependencies"
+          labels: |
+            dependencies
+            automated pr
+          title: "[chore] update dependencies"
+          token: ${{ secrets.CLEAN_DEV_DIRS_PRS_TOKEN }}

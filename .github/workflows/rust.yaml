@@ -2,7 +2,8 @@ name: Rust
 
 on:
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
+    paths: ["src/**", "Cargo.*", ".github/workflows/rust.yaml"]
 
 permissions: read-all
 
@@ -10,9 +11,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  Build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -20,6 +20,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - name: Log Cargo version
+        run: cargo --version
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -34,9 +37,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-        continue-on-error: true  # Don't fail CI for outdated deps, just warn
+        run: cargo clippy --workspace --release --all-targets --all-features -- --deny warnings -D warnings -W clippy::correctness -W clippy::suspicious -W clippy::complexity -W clippy::perf -W clippy::style -W clippy::pedantic
 
       - name: Build
         run: cargo build --verbose

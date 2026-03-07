@@ -1,0 +1,75 @@
+name: Notify Homebrew Tap
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g., v1.2.3)"
+        required: true
+        type: string
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
+    steps:
+      - name: Debug event context
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Event action: ${{ github.event.action }}"
+          echo "Tag from release: ${{ github.event.release.tag_name }}"
+          echo "Ref name: ${{ github.ref_name }}"
+          echo "Resolved TAG: $TAG"
+
+      - name: Validate tag
+        run: |
+          if [ -z "$TAG" ]; then
+            echo "ERROR: No tag available (both github.event.release.tag_name and github.ref_name are empty)"
+            exit 1
+          fi
+          echo "Using tag: $TAG"
+
+      - name: Check if PR already exists in tap (guard)
+        id: guard
+        env:
+          TOKEN: ${{ secrets.CLEAN_DEV_DIRS_PRS_TOKEN }}
+        run: |
+          OWNER="clean-dev-dirs"
+          REPO="homebrew-clean-dev-dirs"
+          BRANCH="bump/clean-dev-dirs-${TAG}"
+          API_URL="https://api.github.com/repos/${OWNER}/${REPO}/pulls?state=open&head=${BRANCH}"
+          # Query open PRs with the expected head branch (use just branch name, not owner:branch)
+          echo "Checking for existing PRs at: ${API_URL}"
+          RES=$(curl -s -H "Authorization: token ${TOKEN}" "${API_URL}")
+
+          # Check if response is valid JSON array (not an error object)
+          if ! echo "$RES" | jq -e 'type == "array"' > /dev/null 2>&1; then
+            echo "ERROR: Invalid API response (possibly auth issue)"
+            echo "Response: $RES"
+            exit 1
+          fi
+
+          COUNT=$(echo "$RES" | jq 'length')
+          if [ "$COUNT" -gt 0 ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Found existing PR for ${BRANCH}, skipping dispatch"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "No existing PR for ${BRANCH}, will dispatch"
+          fi
+
+      - name: Dispatch update to homebrew-clean-dev-dirs
+        if: steps.guard.outputs.exists == 'false'
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.CLEAN_DEV_DIRS_PRS_TOKEN }}
+          repository: clean-dev-dirs/homebrew-clean-dev-dirs
+          event-type: clean-dev-dirs-release
+          client-payload: |
+            {
+              "tag": "${{ env.TAG }}",
+              "tarball_url": "https://github.com/clean-dev-dirs/clean-dev-dirs/archive/refs/tags/${{ env.TAG }}.tar.gz"
+            }

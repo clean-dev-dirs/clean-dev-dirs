@@ -127,7 +127,7 @@ impl Projects {
     /// ```
     #[must_use]
     pub fn get_total_size(&self) -> u64 {
-        self.0.iter().map(|p| p.build_arts.size).sum()
+        self.0.iter().map(Project::total_size).sum()
     }
 
     /// Present an interactive selection interface for choosing projects to clean.
@@ -144,7 +144,7 @@ impl Projects {
     /// # Interface Details
     ///
     /// - Uses a colorful theme for better visual appeal
-    /// - Shows project type icons (🦀 for Rust, 📦 for Node.js, 🐍 for Python, 🐹 for Go)
+    /// - Shows project type icons (🦀 Rust, 📦 Node.js, 🐍 Python, 🐹 Go, ☕ Java, ⚙️ C/C++, 🐦 Swift, 🔷 .NET)
     /// - Displays project paths and sizes in human-readable format
     /// - Allows toggling selections with space bar
     /// - Confirms selection with the Enter key
@@ -169,16 +169,11 @@ impl Projects {
             .0
             .iter()
             .map(|p| {
-                let icon = match p.kind {
-                    ProjectType::Rust => "🦀",
-                    ProjectType::Node => "📦",
-                    ProjectType::Python => "🐍",
-                    ProjectType::Go => "🐹",
-                };
+                let icon = icon_for_project_type(&p.kind);
                 format!(
                     "{icon} {} ({})",
                     p.root_path.display(),
-                    format_size(p.build_arts.size, DECIMAL)
+                    format_size(p.total_size(), DECIMAL)
                 )
             })
             .collect();
@@ -189,33 +184,23 @@ impl Projects {
             .with_default(&defaults)
             .prompt()?;
 
-        // Find indices of selected items
-        let selected_indices: Vec<usize> = selections
+        Ok(selections
             .iter()
             .filter_map(|selected_item| {
                 self.0
                     .iter()
                     .enumerate()
                     .find(|(_, p)| {
-                        let icon = match p.kind {
-                            ProjectType::Rust => "🦀",
-                            ProjectType::Node => "📦",
-                            ProjectType::Python => "🐍",
-                            ProjectType::Go => "🐹",
-                        };
+                        let icon = icon_for_project_type(&p.kind);
                         let expected = format!(
                             "{icon} {} ({})",
                             p.root_path.display(),
-                            format_size(p.build_arts.size, DECIMAL)
+                            format_size(p.total_size(), DECIMAL)
                         );
                         &expected == selected_item
                     })
                     .map(|(i, _)| i)
             })
-            .collect();
-
-        Ok(selected_indices
-            .into_iter()
             .map(|i| self.0[i].clone())
             .collect())
     }
@@ -233,7 +218,7 @@ impl Projects {
     /// println!("Found {} projects", projects.len());
     /// ```
     #[must_use]
-    pub fn len(&self) -> usize {
+    pub const fn len(&self) -> usize {
         self.0.len()
     }
 
@@ -252,8 +237,17 @@ impl Projects {
     /// }
     /// ```
     #[must_use]
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.0.is_empty()
+    }
+
+    /// Return a slice of the underlying project collection.
+    ///
+    /// Useful for inspecting projects without consuming the collection,
+    /// for example to build JSON output before cleanup.
+    #[must_use]
+    pub fn as_slice(&self) -> &[Project] {
+        &self.0
     }
 
     /// Print a detailed summary of the projects and their reclaimable space.
@@ -286,74 +280,67 @@ impl Projects {
     ///   📦 3 Node.js projects (1.7 GB)
     ///   🐍 2 Python projects (1.2 GB)
     ///   🐹 1 Go project (0.5 GB)
+    ///   ☕ 2 Java/Kotlin projects (0.8 GB)
+    ///   ⚙️ 1 C/C++ project (0.3 GB)
+    ///   🐦 1 Swift project (0.2 GB)
+    ///   🔷 1 .NET/C# project (0.1 GB)
     ///   💾 Total reclaimable space: 4.0 GB
     /// ```
     pub fn print_summary(&self, total_size: u64) {
-        let mut rust_count = 0;
-        let mut node_count = 0;
-        let mut python_count = 0;
-        let mut go_count = 0;
-        let mut rust_size = 0u64;
-        let mut node_size = 0u64;
-        let mut python_size = 0u64;
-        let mut go_size = 0u64;
+        let type_entries: &[(ProjectType, &str, &str)] = &[
+            (ProjectType::Rust, "🦀", "Rust"),
+            (ProjectType::Node, "📦", "Node.js"),
+            (ProjectType::Python, "🐍", "Python"),
+            (ProjectType::Go, "🐹", "Go"),
+            (ProjectType::Java, "☕", "Java/Kotlin"),
+            (ProjectType::Cpp, "⚙️", "C/C++"),
+            (ProjectType::Swift, "🐦", "Swift"),
+            (ProjectType::DotNet, "🔷", ".NET/C#"),
+        ];
 
-        for project in &self.0 {
-            match project.kind {
-                ProjectType::Rust => {
-                    rust_count += 1;
-                    rust_size += project.build_arts.size;
+        for (kind, icon, label) in type_entries {
+            let (count, size) = self.0.iter().fold((0usize, 0u64), |(c, s), p| {
+                if &p.kind == kind {
+                    (c + 1, s + p.total_size())
+                } else {
+                    (c, s)
                 }
-                ProjectType::Node => {
-                    node_count += 1;
-                    node_size += project.build_arts.size;
-                }
-                ProjectType::Python => {
-                    python_count += 1;
-                    python_size += project.build_arts.size;
-                }
-                ProjectType::Go => {
-                    go_count += 1;
-                    go_size += project.build_arts.size;
-                }
+            });
+
+            if count > 0 {
+                println!(
+                    "  {icon} {} {label} projects ({})",
+                    count.to_string().bright_white(),
+                    format_size(size, DECIMAL).bright_white()
+                );
             }
-        }
-
-        if rust_count > 0 {
-            println!(
-                "  🦀 {} Rust projects ({})",
-                rust_count.to_string().bright_white(),
-                format_size(rust_size, DECIMAL).bright_white()
-            );
-        }
-
-        if node_count > 0 {
-            println!(
-                "  📦 {} Node.js projects ({})",
-                node_count.to_string().bright_white(),
-                format_size(node_size, DECIMAL).bright_white()
-            );
-        }
-
-        if python_count > 0 {
-            println!(
-                "  🐍 {} Python projects ({})",
-                python_count.to_string().bright_white(),
-                format_size(python_size, DECIMAL).bright_white()
-            );
-        }
-
-        if go_count > 0 {
-            println!(
-                "  🐹 {} Go projects ({})",
-                go_count.to_string().bright_white(),
-                format_size(go_size, DECIMAL).bright_white()
-            );
         }
 
         println!(
             "  💾 Total reclaimable space: {}",
             format_size(total_size, DECIMAL).bright_green().bold()
         );
+    }
+}
+
+/// Return the icon for a given project type.
+const fn icon_for_project_type(kind: &ProjectType) -> &'static str {
+    match kind {
+        ProjectType::Rust => "🦀",
+        ProjectType::Node => "📦",
+        ProjectType::Python => "🐍",
+        ProjectType::Go => "🐹",
+        ProjectType::Java => "☕",
+        ProjectType::Cpp => "⚙️",
+        ProjectType::Swift => "🐦",
+        ProjectType::DotNet => "🔷",
+        ProjectType::Ruby => "💎",
+        ProjectType::Elixir => "💧",
+        ProjectType::Deno => "🦕",
+        ProjectType::Php => "🐘",
+        ProjectType::Haskell => "λ",
+        ProjectType::Dart => "🎯",
+        ProjectType::Zig => "⚡",
+        ProjectType::Scala => "🔴",
     }
 }

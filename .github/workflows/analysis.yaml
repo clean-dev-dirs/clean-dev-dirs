@@ -1,18 +1,25 @@
 on:
-  pull_request:
-    types: [ opened, synchronize, reopened ]
+    push:
+        branches:
+            - main
+        paths:
+            - 'src/**'
+    pull_request:
+        types: [opened, synchronize, reopened]
+        paths:
+            - 'src/**'
 
 name: Main Workflow
 jobs:
-  sonarqube:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # Disabling shallow clones is recommended for improving the relevancy of reporting
-          fetch-depth: 0
-      - name: SonarQube Scan
-        uses: SonarSource/sonarqube-scan-action@v5.2.0
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: https://sonarcloud.io
+    sonarqube:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  # Disabling shallow clones is recommended for improving the relevancy of reporting
+                  fetch-depth: 0
+            - name: SonarQube Scan
+              uses: SonarSource/sonarqube-scan-action@v6.0.0
+              env:
+                  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+                  SONAR_HOST_URL: https://sonarcloud.io

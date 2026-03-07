@@ -1,9 +1,35 @@
 //! Size parsing and manipulation utilities.
 //!
 //! This module provides functions for parsing human-readable size strings
-//! (like "100MB" or "1.5GiB") into byte values.
+//! (like "100MB" or "1.5GiB") into byte values, and for measuring directory
+//! sizes on disk.
+
+use std::path::Path;
 
 use anyhow::Result;
+use walkdir::WalkDir;
+
+/// Calculate the total size of a directory and all its contents, in bytes.
+///
+/// Recursively traverses the directory tree using `walkdir` and sums the sizes
+/// of all files found. Errors for individual entries (permission denied, broken
+/// symlinks, etc.) are silently skipped so the function always returns a result.
+///
+/// Returns `0` if the path does not exist or cannot be traversed at the root level.
+#[must_use]
+pub fn calculate_dir_size(path: &Path) -> u64 {
+    let mut total = 0u64;
+
+    for entry in WalkDir::new(path).into_iter().flatten() {
+        if entry.file_type().is_file()
+            && let Ok(metadata) = entry.metadata()
+        {
+            total += metadata.len();
+        }
+    }
+
+    total
+}
 
 /// Parse a human-readable size string into bytes.
 ///

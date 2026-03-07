@@ -7,8 +7,11 @@
 
 use std::{
     fs,
-    path::Path,
-    sync::{Arc, Mutex},
+    path::{Path, PathBuf},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
 };
 
 use colored::Colorize;
@@ -34,6 +37,9 @@ pub struct Scanner {
 
     /// Filter to restrict scanning to specific project types
     project_filter: ProjectFilter,
+
+    /// When `true`, suppresses progress spinner output (used by `--json` mode).
+    quiet: bool,
 }
 
 impl Scanner {
@@ -61,11 +67,22 @@ impl Scanner {
     /// let scanner = Scanner::new(scan_options, ProjectFilter::All);
     /// ```
     #[must_use]
-    pub fn new(scan_options: ScanOptions, project_filter: ProjectFilter) -> Self {
+    pub const fn new(scan_options: ScanOptions, project_filter: ProjectFilter) -> Self {
         Self {
             scan_options,
             project_filter,
+            quiet: false,
         }
+    }
+
+    /// Enable or disable quiet mode (suppresses progress spinner).
+    ///
+    /// When quiet mode is active the scanning spinner is hidden, which is
+    /// required for `--json` output so that only the final JSON is printed.
+    #[must_use]
+    pub const fn with_quiet(mut self, quiet: bool) -> Self {
+        self.quiet = quiet;
+        self
     }
 
     /// Scan a directory tree for development projects.
@@ -107,23 +124,44 @@ impl Scanner {
     pub fn scan_directory(&self, root: &Path) -> Vec<Project> {
         let errors = Arc::new(Mutex::new(Vec::<String>::new()));
 
-        // Create a progress bar
-        let progress = ProgressBar::new_spinner();
-        progress.set_style(
-            ProgressStyle::default_spinner()
-                .template("{spinner:.green} {msg}")
-                .unwrap(),
-        );
-        progress.set_message("Scanning directories...");
+        let progress = if self.quiet {
+            ProgressBar::hidden()
+        } else {
+            let pb = ProgressBar::new_spinner();
+            pb.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{spinner:.green} {msg}")
+                    .unwrap(),
+            );
+            pb.set_message("Scanning...");
+            pb.enable_steady_tick(std::time::Duration::from_millis(100));
+            pb
+        };
+
+        let found_count = Arc::new(AtomicUsize::new(0));
+        let progress_clone = progress.clone();
+        let count_clone = Arc::clone(&found_count);
 
         // Find all potential project directories
-        let potential_projects: Vec<_> = WalkDir::new(root)
+        let walker = self.scan_options.max_depth.map_or_else(
+            || WalkDir::new(root),
+            |depth| WalkDir::new(root).max_depth(depth),
+        );
+
+        let potential_projects: Vec<_> = walker
             .into_iter()
             .filter_map(Result::ok)
             .filter(|entry| self.should_scan_entry(entry))
             .collect::<Vec<_>>()
             .into_par_iter()
-            .filter_map(|entry| self.detect_project(&entry, &errors))
+            .filter_map(|entry| {
+                let result = self.detect_project(&entry, &errors);
+                if result.is_some() {
+                    let n = count_clone.fetch_add(1, Ordering::Relaxed) + 1;
+                    progress_clone.set_message(format!("Scanning... {n} found"));
+                }
+                result
+            })
             .collect();
 
         progress.finish_with_message("✅ Directory scan complete");
@@ -132,10 +170,17 @@ impl Scanner {
         let projects_with_sizes: Vec<_> = potential_projects
             .into_par_iter()
             .filter_map(|mut project| {
-                let size = self.calculate_build_dir_size(&project.build_arts.path);
-                project.build_arts.size = size;
+                for artifact in &mut project.build_arts {
+                    if artifact.size == 0 {
+                        artifact.size = Self::calculate_build_dir_size(&artifact.path);
+                    }
+                }
 
-                if size > 0 { Some(project) } else { None }
+                if project.total_size() > 0 {
+                    Some(project)
+                } else {
+                    None
+                }
             })
             .collect();
 
@@ -148,6 +193,33 @@ impl Scanner {
         }
 
         projects_with_sizes
+    }
+
+    /// Scan multiple root directories and return a deduplicated list of projects.
+    ///
+    /// Calls [`scan_directory`](Scanner::scan_directory) for each root and merges
+    /// the results, skipping any project whose `root_path` was already seen.
+    ///
+    /// # Arguments
+    ///
+    /// * `roots` - Slice of root directories to scan
+    ///
+    /// # Returns
+    ///
+    /// A `Vec<Project>` containing all unique projects found across all roots.
+    #[must_use]
+    pub fn scan_directories(&self, roots: &[PathBuf]) -> Vec<Project> {
+        use std::collections::HashSet;
+        let mut seen: HashSet<PathBuf> = HashSet::new();
+        let mut result = Vec::new();
+        for root in roots {
+            for project in self.scan_directory(root) {
+                if seen.insert(project.root_path.clone()) {
+                    result.push(project);
+                }
+            }
+        }
+        result
     }
 
     /// Calculate the total size of a build directory.
@@ -170,31 +242,12 @@ impl Scanner {
     /// This method can be CPU and I/O intensive for large directories with
     /// many files. It's designed to be called in parallel for multiple
     /// directories to maximize throughput.
-    fn calculate_build_dir_size(&self, path: &Path) -> u64 {
+    fn calculate_build_dir_size(path: &Path) -> u64 {
         if !path.exists() {
             return 0;
         }
 
-        let mut total_size = 0u64;
-
-        for entry in WalkDir::new(path) {
-            match entry {
-                Ok(entry) => {
-                    if entry.file_type().is_file()
-                        && let Ok(metadata) = entry.metadata()
-                    {
-                        total_size += metadata.len();
-                    }
-                }
-                Err(e) => {
-                    if self.scan_options.verbose {
-                        eprintln!("Warning: {e}");
-                    }
-                }
-            }
-        }
-
-        total_size
+        crate::utils::calculate_dir_size(path)
     }
 
     /// Detect a Node.js project in the specified directory.
@@ -229,10 +282,10 @@ impl Scanner {
         if package_json.exists() && node_modules.exists() {
             let name = self.extract_node_project_name(&package_json, errors);
 
-            let build_arts = BuildArtifacts {
+            let build_arts = vec![BuildArtifacts {
                 path: path.join("node_modules"),
                 size: 0, // Will be calculated later
-            };
+            }];
 
             return Some(Project::new(
                 ProjectType::Node,
@@ -264,9 +317,21 @@ impl Scanner {
     /// # Project Detection Logic
     ///
     /// - **Rust projects**: Presence of both `Cargo.toml` and `target/` directory
+    /// - **Deno projects**: Presence of `deno.json`/`deno.jsonc` with `vendor/` or `node_modules/`
     /// - **Node.js projects**: Presence of both `package.json` and `node_modules/` directory
+    /// - **Scala projects**: Presence of `build.sbt` with `target/`
+    /// - **Java/Kotlin projects**: Presence of `pom.xml` or `build.gradle` with `target/` or `build/`
     /// - **Python projects**: Presence of configuration files and cache directories
     /// - **Go projects**: Presence of both `go.mod` and `vendor/` directory
+    /// - **C/C++ projects**: Presence of `CMakeLists.txt` or `Makefile` with `build/`
+    /// - **Swift projects**: Presence of `Package.swift` with `.build/`
+    /// - **.NET/C# projects**: Presence of `.csproj` files with `bin/` or `obj/`
+    /// - **Ruby projects**: Presence of `Gemfile` with `.bundle/` or `vendor/bundle/`
+    /// - **Elixir projects**: Presence of `mix.exs` with `_build/`
+    /// - **PHP projects**: Presence of `composer.json` with `vendor/`
+    /// - **Haskell projects**: Presence of `stack.yaml` with `.stack-work/`, or `*.cabal` with `dist-newstyle/`
+    /// - **Dart/Flutter projects**: Presence of `pubspec.yaml` with `.dart_tool/` or `build/`
+    /// - **Zig projects**: Presence of `build.zig` with `zig-cache/` or `zig-out/`
     fn detect_project(
         &self,
         entry: &DirEntry,
@@ -278,41 +343,84 @@ impl Scanner {
             return None;
         }
 
-        // Check for a Rust project
-        if matches!(
-            self.project_filter,
-            ProjectFilter::All | ProjectFilter::Rust
-        ) && let Some(project) = self.detect_rust_project(path, errors)
-        {
-            return Some(project);
-        }
+        // Detectors are tried in order; the first match wins.
+        // More specific ecosystems are checked before more generic ones
+        // (e.g. Scala before Java, since both use target/; Deno before
+        // Node since Deno 2 projects may also have a node_modules/).
+        self.try_detect(ProjectFilter::Rust, || {
+            self.detect_rust_project(path, errors)
+        })
+        .or_else(|| {
+            self.try_detect(ProjectFilter::Deno, || {
+                self.detect_deno_project(path, errors)
+            })
+        })
+        .or_else(|| {
+            self.try_detect(ProjectFilter::Node, || {
+                self.detect_node_project(path, errors)
+            })
+        })
+        .or_else(|| {
+            self.try_detect(ProjectFilter::Scala, || {
+                self.detect_scala_project(path, errors)
+            })
+        })
+        .or_else(|| {
+            self.try_detect(ProjectFilter::Java, || {
+                self.detect_java_project(path, errors)
+            })
+        })
+        .or_else(|| {
+            self.try_detect(ProjectFilter::Swift, || {
+                self.detect_swift_project(path, errors)
+            })
+        })
+        .or_else(|| self.try_detect(ProjectFilter::DotNet, || Self::detect_dotnet_project(path)))
+        .or_else(|| {
+            self.try_detect(ProjectFilter::Python, || {
+                self.detect_python_project(path, errors)
+            })
+        })
+        .or_else(|| self.try_detect(ProjectFilter::Go, || self.detect_go_project(path, errors)))
+        .or_else(|| self.try_detect(ProjectFilter::Cpp, || self.detect_cpp_project(path, errors)))
+        .or_else(|| {
+            self.try_detect(ProjectFilter::Ruby, || {
+                self.detect_ruby_project(path, errors)
+            })
+        })
+        .or_else(|| {
+            self.try_detect(ProjectFilter::Elixir, || {
+                self.detect_elixir_project(path, errors)
+            })
+        })
+        .or_else(|| self.try_detect(ProjectFilter::Php, || self.detect_php_project(path, errors)))
+        .or_else(|| {
+            self.try_detect(ProjectFilter::Haskell, || {
+                self.detect_haskell_project(path, errors)
+            })
+        })
+        .or_else(|| {
+            self.try_detect(ProjectFilter::Dart, || {
+                self.detect_dart_project(path, errors)
+            })
+        })
+        .or_else(|| self.try_detect(ProjectFilter::Zig, || Self::detect_zig_project(path)))
+    }
 
-        // Check for a Node.js project
-        if matches!(
-            self.project_filter,
-            ProjectFilter::All | ProjectFilter::Node
-        ) && let Some(project) = self.detect_node_project(path, errors)
-        {
-            return Some(project);
+    /// Run a detector only if the current project filter allows it.
+    ///
+    /// Returns `None` immediately (without calling `detect`) when the
+    /// active filter doesn't include `filter`.
+    fn try_detect(
+        &self,
+        filter: ProjectFilter,
+        detect: impl FnOnce() -> Option<Project>,
+    ) -> Option<Project> {
+        if self.project_filter == ProjectFilter::All || self.project_filter == filter {
+            detect()
+        } else {
+            None
         }
-
-        // Check for a Python project
-        if matches!(
-            self.project_filter,
-            ProjectFilter::All | ProjectFilter::Python
-        ) && let Some(project) = self.detect_python_project(path, errors)
-        {
-            return Some(project);
-        }
-
-        // Check for a Go project
-        if matches!(self.project_filter, ProjectFilter::All | ProjectFilter::Go)
-            && let Some(project) = self.detect_go_project(path, errors)
-        {
-            return Some(project);
-        }
-
-        None
     }
 
     /// Detect a Rust project in the specified directory.
@@ -345,12 +453,17 @@ impl Scanner {
         let target_dir = path.join("target");
 
         if cargo_toml.exists() && target_dir.exists() {
+            // Skip workspace members — their artifacts are managed by the workspace root.
+            if Self::is_inside_cargo_workspace(path) {
+                return None;
+            }
+
             let name = self.extract_rust_project_name(&cargo_toml, errors);
 
-            let build_arts = BuildArtifacts {
+            let build_arts = vec![BuildArtifacts {
                 path: path.join("target"),
                 size: 0, // Will be calculated later
-            };
+            }];
 
             return Some(Project::new(
                 ProjectType::Rust,
@@ -361,6 +474,24 @@ impl Scanner {
         }
 
         None
+    }
+
+    /// Return true if the given `Cargo.toml` declares a `[workspace]` section.
+    fn is_cargo_workspace_root(cargo_toml: &Path) -> bool {
+        fs::read_to_string(cargo_toml)
+            .map(|content| content.lines().any(|line| line.trim() == "[workspace]"))
+            .unwrap_or(false)
+    }
+
+    /// Return true if `path` is inside a Rust workspace (an ancestor directory
+    /// contains a `Cargo.toml` that declares `[workspace]`).
+    fn is_inside_cargo_workspace(path: &Path) -> bool {
+        path.ancestors()
+            .skip(1) // skip `path` itself
+            .any(|ancestor| {
+                let cargo_toml = ancestor.join("Cargo.toml");
+                cargo_toml.exists() && Self::is_cargo_workspace_root(&cargo_toml)
+            })
     }
 
     /// Extract the project name from a Cargo.toml file.
@@ -447,16 +578,20 @@ impl Scanner {
                     .map(std::string::ToString::to_string),
                 Err(e) => {
                     if self.scan_options.verbose {
-                        let mut errors = errors.lock().unwrap();
-                        errors.push(format!("Error parsing {}: {e}", package_json.display()));
+                        errors
+                            .lock()
+                            .unwrap()
+                            .push(format!("Error parsing {}: {e}", package_json.display()));
                     }
                     None
                 }
             },
             Err(e) => {
                 if self.scan_options.verbose {
-                    let mut errors = errors.lock().unwrap();
-                    errors.push(format!("Error reading {}: {e}", package_json.display()));
+                    errors
+                        .lock()
+                        .unwrap()
+                        .push(format!("Error reading {}: {e}", package_json.display()));
                 }
                 None
             }
@@ -476,8 +611,10 @@ impl Scanner {
         errors: &Arc<Mutex<Vec<String>>>,
     ) {
         if self.scan_options.verbose {
-            let mut errors = errors.lock().unwrap();
-            errors.push(format!("Error reading {}: {error}", file_path.display()));
+            errors
+                .lock()
+                .unwrap()
+                .push(format!("Error reading {}: {error}", file_path.display()));
         }
     }
 
@@ -538,6 +675,7 @@ impl Scanner {
     /// - Python setuptools
     /// - Python coverage files
     /// - Node.js modules (already handled above but added for completeness)
+    /// - .NET `obj/` directory
     fn should_scan_entry(&self, entry: &DirEntry) -> bool {
         let path = entry.path();
 
@@ -605,6 +743,11 @@ impl Scanner {
             ".eggs",
             ".coverage",
             "node_modules",
+            "obj",
+            "_build",
+            "zig-cache",
+            "zig-out",
+            "dist-newstyle",
         ];
 
         path.file_name()
@@ -666,40 +809,54 @@ impl Scanner {
             return None;
         }
 
-        // Find the largest cache/build directory that exists
-        let mut largest_build_dir = None;
-        let mut largest_size = 0;
+        // Collect all existing cache/build directories.
+        let mut build_arts: Vec<BuildArtifacts> = build_dirs
+            .iter()
+            .filter_map(|&dir_name| {
+                let dir_path = path.join(dir_name);
+                if dir_path.exists() && dir_path.is_dir() {
+                    let size = crate::utils::calculate_dir_size(&dir_path);
+                    Some(BuildArtifacts {
+                        path: dir_path,
+                        size,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect();
 
-        for &dir_name in &build_dirs {
-            let dir_path = path.join(dir_name);
-
-            if dir_path.exists()
-                && dir_path.is_dir()
-                && let Ok(size) = Self::calculate_directory_size(&dir_path)
-                && size > largest_size
-            {
-                largest_size = size;
-                largest_build_dir = Some(dir_path);
+        // Also collect any *.egg-info directories present in the project root.
+        if let Ok(entries) = std::fs::read_dir(path) {
+            for entry in entries.flatten() {
+                let entry_path = entry.path();
+                if entry_path.is_dir()
+                    && entry_path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.ends_with(".egg-info"))
+                {
+                    let size = crate::utils::calculate_dir_size(&entry_path);
+                    build_arts.push(BuildArtifacts {
+                        path: entry_path,
+                        size,
+                    });
+                }
             }
         }
 
-        if let Some(build_path) = largest_build_dir {
-            let name = self.extract_python_project_name(path, errors);
-
-            let build_arts = BuildArtifacts {
-                path: build_path,
-                size: 0, // Will be calculated later
-            };
-
-            return Some(Project::new(
-                ProjectType::Python,
-                path.to_path_buf(),
-                build_arts,
-                name,
-            ));
+        if build_arts.is_empty() {
+            return None;
         }
 
-        None
+        let name = self.extract_python_project_name(path, errors);
+
+        Some(Project::new(
+            ProjectType::Python,
+            path.to_path_buf(),
+            build_arts,
+            name,
+        ))
     }
 
     /// Detect a Go project in the specified directory.
@@ -730,10 +887,10 @@ impl Scanner {
         if go_mod.exists() && vendor_dir.exists() {
             let name = self.extract_go_project_name(&go_mod, errors);
 
-            let build_arts = BuildArtifacts {
+            let build_arts = vec![BuildArtifacts {
                 path: path.join("vendor"),
                 size: 0, // Will be calculated later
-            };
+            }];
 
             return Some(Project::new(
                 ProjectType::Go,
@@ -911,23 +1068,2163 @@ impl Scanner {
         None
     }
 
-    /// Calculate the size of a directory recursively.
+    /// Detect a Java/Kotlin project in the specified directory.
     ///
-    /// This is a helper method used for Python projects to determine which
-    /// cache directory is the largest and should be the primary cleanup target.
-    fn calculate_directory_size(dir_path: &Path) -> std::io::Result<u64> {
-        let mut total_size = 0;
+    /// This method checks for Maven (`pom.xml`) or Gradle (`build.gradle`,
+    /// `build.gradle.kts`) configuration files and their associated build output
+    /// directories (`target/` for Maven, `build/` for Gradle).
+    ///
+    /// # Detection Criteria
+    ///
+    /// 1. `pom.xml` + `target/` directory (Maven)
+    /// 2. `build.gradle` or `build.gradle.kts` + `build/` directory (Gradle)
+    fn detect_java_project(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<Project> {
+        let pom_xml = path.join("pom.xml");
+        let target_dir = path.join("target");
 
-        for entry in fs::read_dir(dir_path)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                total_size += Self::calculate_directory_size(&path).unwrap_or(0);
-            } else {
-                total_size += entry.metadata()?.len();
+        // Maven project: pom.xml + target/
+        if pom_xml.exists() && target_dir.exists() {
+            let name = self.extract_java_maven_project_name(&pom_xml, errors);
+
+            let build_arts = vec![BuildArtifacts {
+                path: target_dir,
+                size: 0,
+            }];
+
+            return Some(Project::new(
+                ProjectType::Java,
+                path.to_path_buf(),
+                build_arts,
+                name,
+            ));
+        }
+
+        // Gradle project: build.gradle(.kts) + build/
+        let has_gradle =
+            path.join("build.gradle").exists() || path.join("build.gradle.kts").exists();
+        let build_dir = path.join("build");
+
+        if has_gradle && build_dir.exists() {
+            let name = self.extract_java_gradle_project_name(path, errors);
+
+            let build_arts = vec![BuildArtifacts {
+                path: build_dir,
+                size: 0,
+            }];
+
+            return Some(Project::new(
+                ProjectType::Java,
+                path.to_path_buf(),
+                build_arts,
+                name,
+            ));
+        }
+
+        None
+    }
+
+    /// Extract the project name from a Maven `pom.xml` file.
+    ///
+    /// Looks for `<artifactId>` tags and extracts the text content.
+    fn extract_java_maven_project_name(
+        &self,
+        pom_xml: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        let content = self.read_file_content(pom_xml, errors)?;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("<artifactId>") && trimmed.ends_with("</artifactId>") {
+                let name = trimmed
+                    .strip_prefix("<artifactId>")?
+                    .strip_suffix("</artifactId>")?;
+                return Some(name.to_string());
             }
         }
 
-        Ok(total_size)
+        None
+    }
+
+    /// Extract the project name from a Gradle project.
+    ///
+    /// Looks for `settings.gradle` or `settings.gradle.kts` and extracts
+    /// the `rootProject.name` value. Falls back to directory name.
+    fn extract_java_gradle_project_name(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        for settings_file in &["settings.gradle", "settings.gradle.kts"] {
+            let settings_path = path.join(settings_file);
+            if settings_path.exists()
+                && let Some(content) = self.read_file_content(&settings_path, errors)
+            {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.contains("rootProject.name") && trimmed.contains('=') {
+                        return Self::extract_quoted_value(trimmed).or_else(|| {
+                            trimmed
+                                .split('=')
+                                .nth(1)
+                                .map(|s| s.trim().trim_matches('\'').to_string())
+                        });
+                    }
+                }
+            }
+        }
+
+        Self::fallback_to_directory_name(path)
+    }
+
+    /// Detect a C/C++ project in the specified directory.
+    ///
+    /// This method checks for `CMakeLists.txt` or `Makefile` alongside a `build/`
+    /// directory to identify C/C++ projects.
+    ///
+    /// # Detection Criteria
+    ///
+    /// 1. `CMakeLists.txt` + `build/` directory (`CMake`)
+    /// 2. `Makefile` + `build/` directory (`Make`)
+    fn detect_cpp_project(&self, path: &Path, errors: &Arc<Mutex<Vec<String>>>) -> Option<Project> {
+        let build_dir = path.join("build");
+
+        if !build_dir.exists() {
+            return None;
+        }
+
+        let cmake_file = path.join("CMakeLists.txt");
+        let makefile = path.join("Makefile");
+
+        if cmake_file.exists() || makefile.exists() {
+            let name = if cmake_file.exists() {
+                self.extract_cpp_cmake_project_name(&cmake_file, errors)
+            } else {
+                Self::fallback_to_directory_name(path)
+            };
+
+            let build_arts = vec![BuildArtifacts {
+                path: build_dir,
+                size: 0,
+            }];
+
+            return Some(Project::new(
+                ProjectType::Cpp,
+                path.to_path_buf(),
+                build_arts,
+                name,
+            ));
+        }
+
+        None
+    }
+
+    /// Extract the project name from a `CMakeLists.txt` file.
+    ///
+    /// Looks for `project(name` patterns and extracts the project name.
+    fn extract_cpp_cmake_project_name(
+        &self,
+        cmake_file: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        let content = self.read_file_content(cmake_file, errors)?;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("project(") || trimmed.starts_with("PROJECT(") {
+                let inner = trimmed
+                    .trim_start_matches("project(")
+                    .trim_start_matches("PROJECT(")
+                    .trim_end_matches(')')
+                    .trim();
+
+                // The project name is the first word/token
+                let name = inner.split_whitespace().next()?;
+                // Remove possible surrounding quotes
+                let name = name.trim_matches('"').trim_matches('\'');
+                if !name.is_empty() {
+                    return Some(name.to_string());
+                }
+            }
+        }
+
+        Self::fallback_to_directory_name(cmake_file.parent()?)
+    }
+
+    /// Detect a Swift project in the specified directory.
+    ///
+    /// This method checks for a `Package.swift` manifest and the `.build/`
+    /// directory to identify Swift Package Manager projects.
+    ///
+    /// # Detection Criteria
+    ///
+    /// 1. `Package.swift` file exists
+    /// 2. `.build/` directory exists
+    fn detect_swift_project(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<Project> {
+        let package_swift = path.join("Package.swift");
+        let build_dir = path.join(".build");
+
+        if package_swift.exists() && build_dir.exists() {
+            let name = self.extract_swift_project_name(&package_swift, errors);
+
+            let build_arts = vec![BuildArtifacts {
+                path: build_dir,
+                size: 0,
+            }];
+
+            return Some(Project::new(
+                ProjectType::Swift,
+                path.to_path_buf(),
+                build_arts,
+                name,
+            ));
+        }
+
+        None
+    }
+
+    /// Extract the project name from a `Package.swift` file.
+    ///
+    /// Looks for `name:` inside the `Package(` initializer.
+    fn extract_swift_project_name(
+        &self,
+        package_swift: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        let content = self.read_file_content(package_swift, errors)?;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.contains("name:") {
+                return Self::extract_quoted_value(trimmed);
+            }
+        }
+
+        Self::fallback_to_directory_name(package_swift.parent()?)
+    }
+
+    /// Detect a .NET/C# project in the specified directory.
+    ///
+    /// This method checks for `.csproj` files alongside `bin/` and/or `obj/`
+    /// directories to identify .NET projects.
+    ///
+    /// # Detection Criteria
+    ///
+    /// 1. At least one `.csproj` file exists in the directory
+    /// 2. At least one of `bin/` or `obj/` directories exists
+    fn detect_dotnet_project(path: &Path) -> Option<Project> {
+        let bin_dir = path.join("bin");
+        let obj_dir = path.join("obj");
+
+        let has_build_dir = bin_dir.exists() || obj_dir.exists();
+        if !has_build_dir {
+            return None;
+        }
+
+        let csproj_file = Self::find_file_with_extension(path, "csproj")?;
+
+        // Collect bin/ and obj/ as separate build artifacts (both when present).
+        let build_arts: Vec<BuildArtifacts> = match (bin_dir.exists(), obj_dir.exists()) {
+            (true, true) => {
+                let bin_size = crate::utils::calculate_dir_size(&bin_dir);
+                let obj_size = crate::utils::calculate_dir_size(&obj_dir);
+                vec![
+                    BuildArtifacts {
+                        path: bin_dir,
+                        size: bin_size,
+                    },
+                    BuildArtifacts {
+                        path: obj_dir,
+                        size: obj_size,
+                    },
+                ]
+            }
+            (true, false) => vec![BuildArtifacts {
+                path: bin_dir,
+                size: 0,
+            }],
+            (false, true) => vec![BuildArtifacts {
+                path: obj_dir,
+                size: 0,
+            }],
+            (false, false) => return None,
+        };
+
+        let name = csproj_file
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(std::string::ToString::to_string);
+
+        Some(Project::new(
+            ProjectType::DotNet,
+            path.to_path_buf(),
+            build_arts,
+            name,
+        ))
+    }
+
+    /// Find the first file with a given extension in a directory.
+    fn find_file_with_extension(dir: &Path, extension: &str) -> Option<std::path::PathBuf> {
+        let entries = fs::read_dir(dir).ok()?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && path.extension().and_then(|e| e.to_str()) == Some(extension) {
+                return Some(path);
+            }
+        }
+        None
+    }
+
+    /// Detect a Deno project in the specified directory.
+    ///
+    /// This method checks for a `deno.json` or `deno.jsonc` manifest alongside a
+    /// `vendor/` directory (from `deno vendor`) or a `node_modules/` directory
+    /// (Deno 2 npm support without a `package.json` to avoid overlap with Node.js).
+    ///
+    /// Deno detection runs before Node.js so that a project with `deno.json` and
+    /// `node_modules/` (but no `package.json`) is classified as Deno.
+    fn detect_deno_project(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<Project> {
+        let deno_json = path.join("deno.json");
+        let deno_jsonc = path.join("deno.jsonc");
+
+        if !deno_json.exists() && !deno_jsonc.exists() {
+            return None;
+        }
+
+        let config_path = if deno_json.exists() {
+            deno_json
+        } else {
+            deno_jsonc
+        };
+
+        // vendor/ directory (created by `deno vendor`)
+        let vendor_dir = path.join("vendor");
+        if vendor_dir.exists() {
+            let name = self.extract_deno_project_name(&config_path, errors);
+            return Some(Project::new(
+                ProjectType::Deno,
+                path.to_path_buf(),
+                vec![BuildArtifacts {
+                    path: vendor_dir,
+                    size: 0,
+                }],
+                name,
+            ));
+        }
+
+        // node_modules/ (Deno 2 npm support) — only when no package.json exists
+        let node_modules = path.join("node_modules");
+        if node_modules.exists() && !path.join("package.json").exists() {
+            let name = self.extract_deno_project_name(&config_path, errors);
+            return Some(Project::new(
+                ProjectType::Deno,
+                path.to_path_buf(),
+                vec![BuildArtifacts {
+                    path: node_modules,
+                    size: 0,
+                }],
+                name,
+            ));
+        }
+
+        None
+    }
+
+    /// Extract the project name from a `deno.json` or `deno.jsonc` file.
+    ///
+    /// Parses the JSON file and reads the top-level `"name"` field.
+    /// Falls back to the directory name if the field is absent or the file cannot be parsed.
+    fn extract_deno_project_name(
+        &self,
+        config_path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        match fs::read_to_string(config_path) {
+            Ok(content) => {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content)
+                    && let Some(name) = json.get("name").and_then(|v| v.as_str())
+                {
+                    return Some(name.to_string());
+                }
+                Self::fallback_to_directory_name(config_path.parent()?)
+            }
+            Err(e) => {
+                self.log_file_error(config_path, &e, errors);
+                Self::fallback_to_directory_name(config_path.parent()?)
+            }
+        }
+    }
+
+    /// Detect a Ruby project in the specified directory.
+    ///
+    /// This method checks for a `Gemfile` alongside a `.bundle/` or `vendor/bundle/`
+    /// directory. When both exist the larger one is selected as the primary artifact.
+    ///
+    /// # Detection Criteria
+    ///
+    /// 1. `Gemfile` file exists in directory
+    /// 2. At least one of `.bundle/` or `vendor/bundle/` directories exists
+    fn detect_ruby_project(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<Project> {
+        let gemfile = path.join("Gemfile");
+        if !gemfile.exists() {
+            return None;
+        }
+
+        let bundle_dir = path.join(".bundle");
+        let vendor_bundle_dir = path.join("vendor").join("bundle");
+
+        let build_arts: Vec<BuildArtifacts> =
+            match (bundle_dir.exists(), vendor_bundle_dir.exists()) {
+                (true, true) => {
+                    let bundle_size = crate::utils::calculate_dir_size(&bundle_dir);
+                    let vendor_size = crate::utils::calculate_dir_size(&vendor_bundle_dir);
+                    vec![
+                        BuildArtifacts {
+                            path: bundle_dir,
+                            size: bundle_size,
+                        },
+                        BuildArtifacts {
+                            path: vendor_bundle_dir,
+                            size: vendor_size,
+                        },
+                    ]
+                }
+                (true, false) => vec![BuildArtifacts {
+                    path: bundle_dir,
+                    size: 0,
+                }],
+                (false, true) => vec![BuildArtifacts {
+                    path: vendor_bundle_dir,
+                    size: 0,
+                }],
+                (false, false) => return None,
+            };
+
+        let name = self.extract_ruby_project_name(path, errors);
+
+        Some(Project::new(
+            ProjectType::Ruby,
+            path.to_path_buf(),
+            build_arts,
+            name,
+        ))
+    }
+
+    /// Extract the project name from a Ruby project directory.
+    ///
+    /// Looks for a `.gemspec` file and parses the `spec.name` or `s.name` assignment.
+    /// Falls back to the directory name.
+    fn extract_ruby_project_name(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        let entries = fs::read_dir(path).ok()?;
+        for entry in entries.flatten() {
+            let entry_path = entry.path();
+            if entry_path.is_file()
+                && entry_path.extension().and_then(|e| e.to_str()) == Some("gemspec")
+                && let Some(content) = self.read_file_content(&entry_path, errors)
+            {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.contains(".name")
+                        && trimmed.contains('=')
+                        && let Some(name) = Self::extract_quoted_value(trimmed)
+                    {
+                        return Some(name);
+                    }
+                }
+            }
+        }
+
+        Self::fallback_to_directory_name(path)
+    }
+
+    /// Detect an Elixir project in the specified directory.
+    ///
+    /// This method checks for the presence of both `mix.exs` and `_build/`
+    /// to identify an Elixir/Mix project.
+    ///
+    /// # Detection Criteria
+    ///
+    /// 1. `mix.exs` file exists in directory
+    /// 2. `_build/` subdirectory exists in directory
+    fn detect_elixir_project(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<Project> {
+        let mix_exs = path.join("mix.exs");
+        let build_dir = path.join("_build");
+
+        if mix_exs.exists() && build_dir.exists() {
+            let name = self.extract_elixir_project_name(&mix_exs, errors);
+
+            return Some(Project::new(
+                ProjectType::Elixir,
+                path.to_path_buf(),
+                vec![BuildArtifacts {
+                    path: build_dir,
+                    size: 0,
+                }],
+                name,
+            ));
+        }
+
+        None
+    }
+
+    /// Extract the project name from a `mix.exs` file.
+    ///
+    /// Looks for the `app: :atom_name` pattern inside the Mix project definition.
+    /// Falls back to the directory name.
+    fn extract_elixir_project_name(
+        &self,
+        mix_exs: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        let content = self.read_file_content(mix_exs, errors)?;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.contains("app:")
+                && let Some(pos) = trimmed.find("app:")
+            {
+                let after = trimmed[pos + 4..].trim_start();
+                if let Some(atom) = after.strip_prefix(':') {
+                    // Elixir atom names consist of alphanumeric chars and underscores
+                    let name: String = atom
+                        .chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_')
+                        .collect();
+                    if !name.is_empty() {
+                        return Some(name);
+                    }
+                }
+            }
+        }
+
+        Self::fallback_to_directory_name(mix_exs.parent()?)
+    }
+
+    /// Detect a PHP project in the specified directory.
+    ///
+    /// This method checks for the presence of both `composer.json` and `vendor/`
+    /// to identify a PHP/Composer project.
+    ///
+    /// # Detection Criteria
+    ///
+    /// 1. `composer.json` file exists in directory
+    /// 2. `vendor/` subdirectory exists in directory
+    fn detect_php_project(&self, path: &Path, errors: &Arc<Mutex<Vec<String>>>) -> Option<Project> {
+        let composer_json = path.join("composer.json");
+        let vendor_dir = path.join("vendor");
+
+        if composer_json.exists() && vendor_dir.exists() {
+            let name = self.extract_php_project_name(&composer_json, errors);
+
+            return Some(Project::new(
+                ProjectType::Php,
+                path.to_path_buf(),
+                vec![BuildArtifacts {
+                    path: vendor_dir,
+                    size: 0,
+                }],
+                name,
+            ));
+        }
+
+        None
+    }
+
+    /// Extract the project name from a `composer.json` file.
+    ///
+    /// Parses the JSON and reads the top-level `"name"` field.
+    /// The name is typically `vendor/package`; only the package component is returned.
+    /// Falls back to the directory name if the field is absent or the file cannot be parsed.
+    fn extract_php_project_name(
+        &self,
+        composer_json: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        match fs::read_to_string(composer_json) {
+            Ok(content) => {
+                if let Ok(json) = from_str::<Value>(&content)
+                    && let Some(name) = json.get("name").and_then(|v| v.as_str())
+                {
+                    // composer.json name is "vendor/package"; return just the package part.
+                    let package = name.split('/').next_back().unwrap_or(name);
+                    return Some(package.to_string());
+                }
+                Self::fallback_to_directory_name(composer_json.parent()?)
+            }
+            Err(e) => {
+                self.log_file_error(composer_json, &e, errors);
+                Self::fallback_to_directory_name(composer_json.parent()?)
+            }
+        }
+    }
+
+    /// Detect a Haskell project in the specified directory.
+    ///
+    /// Supports both Stack and Cabal build systems:
+    /// - Stack: `stack.yaml` + `.stack-work/`
+    /// - Cabal: (`cabal.project` or `*.cabal` file) + `dist-newstyle/`
+    fn detect_haskell_project(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<Project> {
+        // Stack project: stack.yaml + .stack-work/
+        let stack_yaml = path.join("stack.yaml");
+        let stack_work = path.join(".stack-work");
+
+        if stack_yaml.exists() && stack_work.exists() {
+            let name = self.extract_haskell_project_name(path, errors);
+            return Some(Project::new(
+                ProjectType::Haskell,
+                path.to_path_buf(),
+                vec![BuildArtifacts {
+                    path: stack_work,
+                    size: 0,
+                }],
+                name,
+            ));
+        }
+
+        // Cabal project: (cabal.project OR *.cabal file) + dist-newstyle/
+        let dist_newstyle = path.join("dist-newstyle");
+        if dist_newstyle.exists() {
+            let has_cabal_project = path.join("cabal.project").exists();
+            let has_cabal_file = Self::find_file_with_extension(path, "cabal").is_some();
+
+            if has_cabal_project || has_cabal_file {
+                let name = self.extract_haskell_project_name(path, errors);
+                return Some(Project::new(
+                    ProjectType::Haskell,
+                    path.to_path_buf(),
+                    vec![BuildArtifacts {
+                        path: dist_newstyle,
+                        size: 0,
+                    }],
+                    name,
+                ));
+            }
+        }
+
+        None
+    }
+
+    /// Extract the project name from a Haskell project directory.
+    ///
+    /// Looks for a `*.cabal` file and reads the `name:` field from it.
+    /// Also checks `package.yaml` (hpack). Falls back to the directory name.
+    fn extract_haskell_project_name(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        // Try *.cabal file first
+        if let Some(cabal_file) = Self::find_file_with_extension(path, "cabal")
+            && let Some(content) = self.read_file_content(&cabal_file, errors)
+        {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if let Some(rest) = trimmed.strip_prefix("name:") {
+                    let name = rest.trim().to_string();
+                    if !name.is_empty() {
+                        return Some(name);
+                    }
+                }
+            }
+        }
+
+        // Try package.yaml (hpack)
+        let package_yaml = path.join("package.yaml");
+        if package_yaml.exists()
+            && let Some(content) = self.read_file_content(&package_yaml, errors)
+        {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if let Some(rest) = trimmed.strip_prefix("name:") {
+                    let name = rest.trim().trim_matches('"').trim_matches('\'').to_string();
+                    if !name.is_empty() {
+                        return Some(name);
+                    }
+                }
+            }
+        }
+
+        Self::fallback_to_directory_name(path)
+    }
+
+    /// Detect a Dart/Flutter project in the specified directory.
+    ///
+    /// This method checks for a `pubspec.yaml` manifest alongside `.dart_tool/`
+    /// and/or `build/` directories.
+    ///
+    /// # Detection Criteria
+    ///
+    /// 1. `pubspec.yaml` file exists in directory
+    /// 2. At least one of `.dart_tool/` or `build/` exists
+    fn detect_dart_project(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<Project> {
+        let pubspec_yaml = path.join("pubspec.yaml");
+        if !pubspec_yaml.exists() {
+            return None;
+        }
+
+        let dart_tool = path.join(".dart_tool");
+        let build_dir = path.join("build");
+
+        let build_arts: Vec<BuildArtifacts> = match (dart_tool.exists(), build_dir.exists()) {
+            (true, true) => {
+                let dart_size = crate::utils::calculate_dir_size(&dart_tool);
+                let build_size = crate::utils::calculate_dir_size(&build_dir);
+                vec![
+                    BuildArtifacts {
+                        path: dart_tool,
+                        size: dart_size,
+                    },
+                    BuildArtifacts {
+                        path: build_dir,
+                        size: build_size,
+                    },
+                ]
+            }
+            (true, false) => vec![BuildArtifacts {
+                path: dart_tool,
+                size: 0,
+            }],
+            (false, true) => vec![BuildArtifacts {
+                path: build_dir,
+                size: 0,
+            }],
+            (false, false) => return None,
+        };
+
+        let name = self.extract_dart_project_name(&pubspec_yaml, errors);
+
+        Some(Project::new(
+            ProjectType::Dart,
+            path.to_path_buf(),
+            build_arts,
+            name,
+        ))
+    }
+
+    /// Extract the project name from a `pubspec.yaml` file.
+    ///
+    /// Reads the `name:` field from the YAML file using simple line parsing.
+    /// Falls back to the directory name.
+    fn extract_dart_project_name(
+        &self,
+        pubspec_yaml: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        let content = self.read_file_content(pubspec_yaml, errors)?;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("name:") {
+                let name = rest.trim().trim_matches('"').trim_matches('\'').to_string();
+                if !name.is_empty() {
+                    return Some(name);
+                }
+            }
+        }
+
+        Self::fallback_to_directory_name(pubspec_yaml.parent()?)
+    }
+
+    /// Detect a Zig project in the specified directory.
+    ///
+    /// This method checks for a `build.zig` file alongside `zig-cache/` and/or
+    /// `zig-out/` directories.
+    ///
+    /// # Detection Criteria
+    ///
+    /// 1. `build.zig` file exists in directory
+    /// 2. At least one of `zig-cache/` or `zig-out/` exists
+    fn detect_zig_project(path: &Path) -> Option<Project> {
+        let build_zig = path.join("build.zig");
+        if !build_zig.exists() {
+            return None;
+        }
+
+        let zig_cache = path.join("zig-cache");
+        let zig_out = path.join("zig-out");
+
+        let build_arts: Vec<BuildArtifacts> = match (zig_cache.exists(), zig_out.exists()) {
+            (true, true) => {
+                let cache_size = crate::utils::calculate_dir_size(&zig_cache);
+                let out_size = crate::utils::calculate_dir_size(&zig_out);
+                vec![
+                    BuildArtifacts {
+                        path: zig_cache,
+                        size: cache_size,
+                    },
+                    BuildArtifacts {
+                        path: zig_out,
+                        size: out_size,
+                    },
+                ]
+            }
+            (true, false) => vec![BuildArtifacts {
+                path: zig_cache,
+                size: 0,
+            }],
+            (false, true) => vec![BuildArtifacts {
+                path: zig_out,
+                size: 0,
+            }],
+            (false, false) => return None,
+        };
+
+        let name = Self::fallback_to_directory_name(path);
+
+        Some(Project::new(
+            ProjectType::Zig,
+            path.to_path_buf(),
+            build_arts,
+            name,
+        ))
+    }
+
+    /// Detect a Scala project in the specified directory.
+    ///
+    /// This method checks for the presence of both `build.sbt` and `target/`
+    /// to identify an sbt-based Scala project.
+    ///
+    /// # Detection Criteria
+    ///
+    /// 1. `build.sbt` file exists in directory
+    /// 2. `target/` subdirectory exists in directory
+    fn detect_scala_project(
+        &self,
+        path: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<Project> {
+        let build_sbt = path.join("build.sbt");
+        let target_dir = path.join("target");
+
+        if build_sbt.exists() && target_dir.exists() {
+            let name = self.extract_scala_project_name(&build_sbt, errors);
+
+            return Some(Project::new(
+                ProjectType::Scala,
+                path.to_path_buf(),
+                vec![BuildArtifacts {
+                    path: target_dir,
+                    size: 0,
+                }],
+                name,
+            ));
+        }
+
+        None
+    }
+
+    /// Extract the project name from a `build.sbt` file.
+    ///
+    /// Looks for a `name := "..."` assignment in the file.
+    /// Falls back to the directory name.
+    fn extract_scala_project_name(
+        &self,
+        build_sbt: &Path,
+        errors: &Arc<Mutex<Vec<String>>>,
+    ) -> Option<String> {
+        let content = self.read_file_content(build_sbt, errors)?;
+
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("name")
+                && trimmed.contains(":=")
+                && let Some(name) = Self::extract_quoted_value(trimmed)
+            {
+                return Some(name);
+            }
+        }
+
+        Self::fallback_to_directory_name(build_sbt.parent()?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    /// Create a scanner with default options and the given filter.
+    fn default_scanner(filter: ProjectFilter) -> Scanner {
+        Scanner::new(
+            ScanOptions {
+                verbose: false,
+                threads: 1,
+                skip: vec![],
+                max_depth: None,
+            },
+            filter,
+        )
+    }
+
+    /// Helper to create a file with content, ensuring parent dirs exist.
+    fn create_file(path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, content).unwrap();
+    }
+
+    // ── Static helper method tests ──────────────────────────────────────
+
+    #[test]
+    fn test_is_hidden_directory_to_skip() {
+        // Hidden directories should be skipped
+        assert!(Scanner::is_hidden_directory_to_skip(Path::new(
+            "/some/.hidden"
+        )));
+        assert!(Scanner::is_hidden_directory_to_skip(Path::new(
+            "/some/.git"
+        )));
+        assert!(Scanner::is_hidden_directory_to_skip(Path::new(
+            "/some/.svn"
+        )));
+        assert!(Scanner::is_hidden_directory_to_skip(Path::new(".env")));
+
+        // .cargo is the special exception — should NOT be skipped
+        assert!(!Scanner::is_hidden_directory_to_skip(Path::new(
+            "/home/user/.cargo"
+        )));
+        assert!(!Scanner::is_hidden_directory_to_skip(Path::new(".cargo")));
+
+        // Non-hidden directories should not be skipped
+        assert!(!Scanner::is_hidden_directory_to_skip(Path::new(
+            "/some/visible"
+        )));
+        assert!(!Scanner::is_hidden_directory_to_skip(Path::new("src")));
+    }
+
+    #[test]
+    fn test_is_excluded_directory() {
+        // Build/artifact directories should be excluded
+        assert!(Scanner::is_excluded_directory(Path::new("/some/target")));
+        assert!(Scanner::is_excluded_directory(Path::new(
+            "/some/node_modules"
+        )));
+        assert!(Scanner::is_excluded_directory(Path::new(
+            "/some/__pycache__"
+        )));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/vendor")));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/build")));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/dist")));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/out")));
+
+        // VCS directories should be excluded
+        assert!(Scanner::is_excluded_directory(Path::new("/some/.git")));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/.svn")));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/.hg")));
+
+        // Python-specific directories
+        assert!(Scanner::is_excluded_directory(Path::new(
+            "/some/.pytest_cache"
+        )));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/.tox")));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/.eggs")));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/.coverage")));
+
+        // Virtual environments
+        assert!(Scanner::is_excluded_directory(Path::new("/some/venv")));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/.venv")));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/env")));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/.env")));
+
+        // Temp directories
+        assert!(Scanner::is_excluded_directory(Path::new("/some/temp")));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/tmp")));
+
+        // Non-excluded directories
+        assert!(!Scanner::is_excluded_directory(Path::new("/some/src")));
+        assert!(!Scanner::is_excluded_directory(Path::new("/some/lib")));
+        assert!(!Scanner::is_excluded_directory(Path::new("/some/app")));
+        assert!(!Scanner::is_excluded_directory(Path::new("/some/tests")));
+    }
+
+    #[test]
+    fn test_extract_quoted_value() {
+        assert_eq!(
+            Scanner::extract_quoted_value(r#"name = "my-project""#),
+            Some("my-project".to_string())
+        );
+        assert_eq!(
+            Scanner::extract_quoted_value(r#"name = "with spaces""#),
+            Some("with spaces".to_string())
+        );
+        assert_eq!(Scanner::extract_quoted_value("no quotes here"), None);
+        // Single quote mark is not a pair
+        assert_eq!(Scanner::extract_quoted_value(r#"only "one"#), None);
+    }
+
+    #[test]
+    fn test_is_name_line() {
+        assert!(Scanner::is_name_line("name = \"test\""));
+        assert!(Scanner::is_name_line("name=\"test\""));
+        assert!(!Scanner::is_name_line("version = \"1.0\""));
+        assert!(!Scanner::is_name_line("# name = \"commented\""));
+        assert!(!Scanner::is_name_line("name: \"yaml style\""));
+    }
+
+    #[test]
+    fn test_parse_toml_name_field() {
+        let content = "[package]\nname = \"test-project\"\nversion = \"0.1.0\"\n";
+        assert_eq!(
+            Scanner::parse_toml_name_field(content),
+            Some("test-project".to_string())
+        );
+
+        let no_name = "[package]\nversion = \"0.1.0\"\n";
+        assert_eq!(Scanner::parse_toml_name_field(no_name), None);
+
+        let empty = "";
+        assert_eq!(Scanner::parse_toml_name_field(empty), None);
+    }
+
+    #[test]
+    fn test_extract_name_from_cfg_content() {
+        let content = "[metadata]\nname = my-package\nversion = 1.0\n";
+        assert_eq!(
+            Scanner::extract_name_from_cfg_content(content),
+            Some("my-package".to_string())
+        );
+
+        // Name in wrong section should not be found
+        let wrong_section = "[options]\nname = not-this\n";
+        assert_eq!(Scanner::extract_name_from_cfg_content(wrong_section), None);
+
+        // Multiple sections — name must be in [metadata]
+        let multi = "[options]\nkey = val\n\n[metadata]\nname = correct\n\n[other]\nname = wrong\n";
+        assert_eq!(
+            Scanner::extract_name_from_cfg_content(multi),
+            Some("correct".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_name_from_python_content() {
+        let content = "from setuptools import setup\nsetup(\n    name=\"my-pkg\",\n)\n";
+        assert_eq!(
+            Scanner::extract_name_from_python_content(content),
+            Some("my-pkg".to_string())
+        );
+
+        let no_name = "from setuptools import setup\nsetup(version=\"1.0\")\n";
+        assert_eq!(Scanner::extract_name_from_python_content(no_name), None);
+    }
+
+    #[test]
+    fn test_fallback_to_directory_name() {
+        assert_eq!(
+            Scanner::fallback_to_directory_name(Path::new("/some/project-name")),
+            Some("project-name".to_string())
+        );
+        assert_eq!(
+            Scanner::fallback_to_directory_name(Path::new("/some/my_app")),
+            Some("my_app".to_string())
+        );
+    }
+
+    #[test]
+    fn test_is_path_in_skip_list() {
+        let scanner = Scanner::new(
+            ScanOptions {
+                verbose: false,
+                threads: 1,
+                skip: vec![PathBuf::from("skip-me"), PathBuf::from("also-skip")],
+                max_depth: None,
+            },
+            ProjectFilter::All,
+        );
+
+        assert!(scanner.is_path_in_skip_list(Path::new("/root/skip-me/project")));
+        assert!(scanner.is_path_in_skip_list(Path::new("/root/also-skip")));
+        assert!(!scanner.is_path_in_skip_list(Path::new("/root/keep-me")));
+        assert!(!scanner.is_path_in_skip_list(Path::new("/root/src")));
+    }
+
+    #[test]
+    fn test_is_path_in_empty_skip_list() {
+        let scanner = default_scanner(ProjectFilter::All);
+        assert!(!scanner.is_path_in_skip_list(Path::new("/any/path")));
+    }
+
+    // ── Scanning with special path characters ───────────────────────────
+
+    #[test]
+    fn test_scan_directory_with_spaces_in_path() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path().join("path with spaces");
+        fs::create_dir_all(&base).unwrap();
+
+        let project = base.join("my project");
+        create_file(
+            &project.join("Cargo.toml"),
+            "[package]\nname = \"spaced\"\nversion = \"0.1.0\"",
+        );
+        create_file(&project.join("target/dummy"), "content");
+
+        let scanner = default_scanner(ProjectFilter::Rust);
+        let projects = scanner.scan_directory(&base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name.as_deref(), Some("spaced"));
+    }
+
+    #[test]
+    fn test_scan_directory_with_unicode_names() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("プロジェクト");
+        create_file(
+            &project.join("package.json"),
+            r#"{"name": "unicode-project"}"#,
+        );
+        create_file(&project.join("node_modules/dep.js"), "module.exports = {};");
+
+        let scanner = default_scanner(ProjectFilter::Node);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name.as_deref(), Some("unicode-project"));
+    }
+
+    #[test]
+    fn test_scan_directory_with_special_characters_in_name() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("project-with-dashes_and_underscores.v2");
+        create_file(
+            &project.join("Cargo.toml"),
+            "[package]\nname = \"special-chars\"\nversion = \"0.1.0\"",
+        );
+        create_file(&project.join("target/dummy"), "content");
+
+        let scanner = default_scanner(ProjectFilter::Rust);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name.as_deref(), Some("special-chars"));
+    }
+
+    // ── Unix-specific scanning tests ────────────────────────────────────
+
+    #[test]
+    #[cfg(unix)]
+    fn test_hidden_directory_itself_not_detected_as_project_unix() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        // A hidden directory with Cargo.toml + target/ directly inside it
+        // should NOT be detected because the .hidden entry is filtered by
+        // is_hidden_directory_to_skip. However, non-hidden children inside
+        // hidden dirs CAN still be found because WalkDir descends into them.
+        let hidden = base.join(".hidden-project");
+        create_file(
+            &hidden.join("Cargo.toml"),
+            "[package]\nname = \"hidden\"\nversion = \"0.1.0\"",
+        );
+        create_file(&hidden.join("target/dummy"), "content");
+
+        // A visible project should be found
+        let visible = base.join("visible-project");
+        create_file(
+            &visible.join("Cargo.toml"),
+            "[package]\nname = \"visible\"\nversion = \"0.1.0\"",
+        );
+        create_file(&visible.join("target/dummy"), "content");
+
+        let scanner = default_scanner(ProjectFilter::Rust);
+        let projects = scanner.scan_directory(base);
+
+        // Only the visible project should be found; the hidden one is excluded
+        // because its directory name starts with '.'
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name.as_deref(), Some("visible"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_projects_inside_hidden_dirs_are_still_traversed_unix() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        // A non-hidden project nested inside a hidden directory.
+        // WalkDir still descends into .hidden, so the child project IS found.
+        let nested = base.join(".hidden-parent/visible-child");
+        create_file(
+            &nested.join("Cargo.toml"),
+            "[package]\nname = \"nested\"\nversion = \"0.1.0\"",
+        );
+        create_file(&nested.join("target/dummy"), "content");
+
+        let scanner = default_scanner(ProjectFilter::Rust);
+        let projects = scanner.scan_directory(base);
+
+        // The child project has a non-hidden name, so it IS detected
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name.as_deref(), Some("nested"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn test_dotcargo_directory_not_skipped_unix() {
+        // .cargo is the exception — hidden but should NOT be skipped.
+        // Verify via the static method.
+        assert!(!Scanner::is_hidden_directory_to_skip(Path::new(
+            "/home/user/.cargo"
+        )));
+
+        // Other dot-dirs ARE skipped
+        assert!(Scanner::is_hidden_directory_to_skip(Path::new(
+            "/home/user/.local"
+        )));
+        assert!(Scanner::is_hidden_directory_to_skip(Path::new(
+            "/home/user/.npm"
+        )));
+    }
+
+    // ── Python project detection tests ──────────────────────────────────
+
+    #[test]
+    fn test_detect_python_with_pyproject_toml() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("py-project");
+        create_file(
+            &project.join("pyproject.toml"),
+            "[project]\nname = \"my-py-lib\"\nversion = \"1.0.0\"\n",
+        );
+        let pycache = project.join("__pycache__");
+        fs::create_dir_all(&pycache).unwrap();
+        create_file(&pycache.join("module.pyc"), "bytecode");
+
+        let scanner = default_scanner(ProjectFilter::Python);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Python);
+    }
+
+    #[test]
+    fn test_detect_python_with_setup_py() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("setup-project");
+        create_file(
+            &project.join("setup.py"),
+            "from setuptools import setup\nsetup(name=\"setup-lib\")\n",
+        );
+        let pycache = project.join("__pycache__");
+        fs::create_dir_all(&pycache).unwrap();
+        create_file(&pycache.join("module.pyc"), "bytecode");
+
+        let scanner = default_scanner(ProjectFilter::Python);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+    }
+
+    #[test]
+    fn test_detect_python_with_pipfile() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("pipenv-project");
+        create_file(
+            &project.join("Pipfile"),
+            "[[source]]\nurl = \"https://pypi.org/simple\"",
+        );
+        let pycache = project.join("__pycache__");
+        fs::create_dir_all(&pycache).unwrap();
+        create_file(&pycache.join("module.pyc"), "bytecode");
+
+        let scanner = default_scanner(ProjectFilter::Python);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+    }
+
+    // ── Go project detection tests ──────────────────────────────────────
+
+    #[test]
+    fn test_detect_go_extracts_module_name() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("go-service");
+        create_file(
+            &project.join("go.mod"),
+            "module github.com/user/my-service\n\ngo 1.21\n",
+        );
+        let vendor = project.join("vendor");
+        fs::create_dir_all(&vendor).unwrap();
+        create_file(&vendor.join("modules.txt"), "vendor manifest");
+
+        let scanner = default_scanner(ProjectFilter::Go);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        // Should extract last path component as name
+        assert_eq!(projects[0].name.as_deref(), Some("my-service"));
+    }
+
+    // ── Java/Kotlin project detection tests ────────────────────────────
+
+    #[test]
+    fn test_detect_java_maven_project() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("java-maven");
+        create_file(
+            &project.join("pom.xml"),
+            "<project>\n  <artifactId>my-java-app</artifactId>\n</project>",
+        );
+        create_file(&project.join("target/classes/Main.class"), "bytecode");
+
+        let scanner = default_scanner(ProjectFilter::Java);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Java);
+        assert_eq!(projects[0].name.as_deref(), Some("my-java-app"));
+    }
+
+    #[test]
+    fn test_detect_java_gradle_project() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("java-gradle");
+        create_file(&project.join("build.gradle"), "apply plugin: 'java'");
+        create_file(
+            &project.join("settings.gradle"),
+            "rootProject.name = \"my-gradle-app\"",
+        );
+        create_file(&project.join("build/classes/main/Main.class"), "bytecode");
+
+        let scanner = default_scanner(ProjectFilter::Java);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Java);
+        assert_eq!(projects[0].name.as_deref(), Some("my-gradle-app"));
+    }
+
+    #[test]
+    fn test_detect_java_gradle_kts_project() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("kotlin-gradle");
+        create_file(
+            &project.join("build.gradle.kts"),
+            "plugins { kotlin(\"jvm\") }",
+        );
+        create_file(
+            &project.join("settings.gradle.kts"),
+            "rootProject.name = \"my-kotlin-app\"",
+        );
+        create_file(
+            &project.join("build/classes/kotlin/main/MainKt.class"),
+            "bytecode",
+        );
+
+        let scanner = default_scanner(ProjectFilter::Java);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Java);
+        assert_eq!(projects[0].name.as_deref(), Some("my-kotlin-app"));
+    }
+
+    // ── C/C++ project detection tests ────────────────────────────────────
+
+    #[test]
+    fn test_detect_cpp_cmake_project() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("cpp-cmake");
+        create_file(
+            &project.join("CMakeLists.txt"),
+            "project(my-cpp-lib)\ncmake_minimum_required(VERSION 3.10)",
+        );
+        create_file(&project.join("build/CMakeCache.txt"), "cache");
+
+        let scanner = default_scanner(ProjectFilter::Cpp);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Cpp);
+        assert_eq!(projects[0].name.as_deref(), Some("my-cpp-lib"));
+    }
+
+    #[test]
+    fn test_detect_cpp_makefile_project() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("cpp-make");
+        create_file(&project.join("Makefile"), "all:\n\tg++ -o main main.cpp");
+        create_file(&project.join("build/main.o"), "object");
+
+        let scanner = default_scanner(ProjectFilter::Cpp);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Cpp);
+    }
+
+    // ── Swift project detection tests ────────────────────────────────────
+
+    #[test]
+    fn test_detect_swift_project() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("swift-pkg");
+        create_file(
+            &project.join("Package.swift"),
+            "let package = Package(\n    name: \"my-swift-lib\",\n    targets: []\n)",
+        );
+        create_file(&project.join(".build/debug/my-swift-lib"), "binary");
+
+        let scanner = default_scanner(ProjectFilter::Swift);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Swift);
+        assert_eq!(projects[0].name.as_deref(), Some("my-swift-lib"));
+    }
+
+    // ── .NET/C# project detection tests ──────────────────────────────────
+
+    #[test]
+    fn test_detect_dotnet_project() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("dotnet-app");
+        create_file(
+            &project.join("MyApp.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n</Project>",
+        );
+        create_file(&project.join("bin/Debug/net8.0/MyApp.dll"), "assembly");
+        create_file(&project.join("obj/Debug/net8.0/MyApp.dll"), "intermediate");
+
+        let scanner = default_scanner(ProjectFilter::DotNet);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::DotNet);
+        assert_eq!(projects[0].name.as_deref(), Some("MyApp"));
+    }
+
+    #[test]
+    fn test_detect_dotnet_project_obj_only() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("dotnet-obj-only");
+        create_file(
+            &project.join("Lib.csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\">\n</Project>",
+        );
+        create_file(&project.join("obj/Debug/net8.0/Lib.dll"), "intermediate");
+
+        let scanner = default_scanner(ProjectFilter::DotNet);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::DotNet);
+        assert_eq!(projects[0].name.as_deref(), Some("Lib"));
+    }
+
+    // ── Excluded directory tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_obj_directory_is_excluded() {
+        assert!(Scanner::is_excluded_directory(Path::new("/some/obj")));
+    }
+
+    // ── Cross-platform calculate_build_dir_size ─────────────────────────
+
+    #[test]
+    fn test_calculate_build_dir_size_empty() {
+        let tmp = TempDir::new().unwrap();
+        let empty_dir = tmp.path().join("empty");
+        fs::create_dir_all(&empty_dir).unwrap();
+
+        assert_eq!(Scanner::calculate_build_dir_size(&empty_dir), 0);
+    }
+
+    #[test]
+    fn test_calculate_build_dir_size_nonexistent() {
+        assert_eq!(
+            Scanner::calculate_build_dir_size(Path::new("/nonexistent/path")),
+            0
+        );
+    }
+
+    #[test]
+    fn test_calculate_build_dir_size_with_nested_files() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().join("nested");
+
+        create_file(&dir.join("file1.txt"), "hello"); // 5 bytes
+        create_file(&dir.join("sub/file2.txt"), "world!"); // 6 bytes
+        create_file(&dir.join("sub/deep/file3.txt"), "!"); // 1 byte
+
+        let size = Scanner::calculate_build_dir_size(&dir);
+        assert_eq!(size, 12);
+    }
+
+    // ── Quiet mode ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_scanner_quiet_mode() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("quiet-project");
+        create_file(
+            &project.join("Cargo.toml"),
+            "[package]\nname = \"quiet\"\nversion = \"0.1.0\"",
+        );
+        create_file(&project.join("target/dummy"), "content");
+
+        let scanner = default_scanner(ProjectFilter::Rust).with_quiet(true);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+    }
+
+    // ── Ruby project detection tests ─────────────────────────────────────
+
+    #[test]
+    fn test_detect_ruby_with_vendor_bundle() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("ruby-project");
+        create_file(
+            &project.join("Gemfile"),
+            "source 'https://rubygems.org'\ngem 'rails'",
+        );
+        create_file(
+            &project.join("my-app.gemspec"),
+            "Gem::Specification.new do |spec|\n  spec.name = \"my-ruby-gem\"\nend",
+        );
+        create_file(
+            &project.join("vendor/bundle/ruby/3.2.0/gems/rails/init.rb"),
+            "# rails",
+        );
+
+        let scanner = default_scanner(ProjectFilter::Ruby);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Ruby);
+        assert_eq!(projects[0].name.as_deref(), Some("my-ruby-gem"));
+    }
+
+    #[test]
+    fn test_detect_ruby_with_dot_bundle() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("ruby-dot-bundle");
+        create_file(&project.join("Gemfile"), "source 'https://rubygems.org'");
+        create_file(&project.join(".bundle/gems/rack-2.0/lib/rack.rb"), "# rack");
+
+        let scanner = default_scanner(ProjectFilter::Ruby);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Ruby);
+    }
+
+    #[test]
+    fn test_detect_ruby_no_artifact_not_detected() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        // Gemfile exists but no .bundle/ or vendor/bundle/
+        let project = base.join("gemfile-only");
+        create_file(&project.join("Gemfile"), "source 'https://rubygems.org'");
+
+        let scanner = default_scanner(ProjectFilter::Ruby);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 0);
+    }
+
+    #[test]
+    fn test_detect_ruby_fallback_to_dir_name() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("my-ruby-app");
+        create_file(&project.join("Gemfile"), "source 'https://rubygems.org'");
+        create_file(
+            &project.join("vendor/bundle/gems/sinatra/lib/sinatra.rb"),
+            "# sinatra",
+        );
+
+        let scanner = default_scanner(ProjectFilter::Ruby);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name.as_deref(), Some("my-ruby-app"));
+    }
+
+    // ── Elixir project detection tests ───────────────────────────────────
+
+    #[test]
+    fn test_detect_elixir_project() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("elixir-project");
+        create_file(
+            &project.join("mix.exs"),
+            "defmodule MyApp.MixProject do\n  def project do\n    [app: :my_app,\n     version: \"0.1.0\"]\n  end\nend",
+        );
+        create_file(
+            &project.join("_build/dev/lib/my_app/.mix/compile.elixir"),
+            "# build",
+        );
+
+        let scanner = default_scanner(ProjectFilter::Elixir);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Elixir);
+        assert_eq!(projects[0].name.as_deref(), Some("my_app"));
+    }
+
+    #[test]
+    fn test_detect_elixir_no_build_not_detected() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("mix-only");
+        create_file(
+            &project.join("mix.exs"),
+            "defmodule MixOnly.MixProject do\n  def project do\n    [app: :mix_only]\n  end\nend",
+        );
+
+        let scanner = default_scanner(ProjectFilter::Elixir);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 0);
+    }
+
+    #[test]
+    fn test_detect_elixir_fallback_to_dir_name() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("my_elixir_project");
+        create_file(&project.join("mix.exs"), "# minimal mix.exs without app:");
+        create_file(
+            &project.join("_build/prod/lib/my_elixir_project.beam"),
+            "bytecode",
+        );
+
+        let scanner = default_scanner(ProjectFilter::Elixir);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name.as_deref(), Some("my_elixir_project"));
+    }
+
+    // ── Deno project detection tests ─────────────────────────────────────
+
+    #[test]
+    fn test_detect_deno_with_vendor() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("deno-project");
+        create_file(
+            &project.join("deno.json"),
+            r#"{"name": "my-deno-app", "imports": {}}"#,
+        );
+        create_file(&project.join("vendor/modules.json"), "{}");
+
+        let scanner = default_scanner(ProjectFilter::Deno);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Deno);
+        assert_eq!(projects[0].name.as_deref(), Some("my-deno-app"));
+    }
+
+    #[test]
+    fn test_detect_deno_jsonc_config() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("deno-jsonc-project");
+        create_file(
+            &project.join("deno.jsonc"),
+            r#"{"name": "my-deno-jsonc-app", "tasks": {}}"#,
+        );
+        create_file(&project.join("vendor/modules.json"), "{}");
+
+        let scanner = default_scanner(ProjectFilter::Deno);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Deno);
+        assert_eq!(projects[0].name.as_deref(), Some("my-deno-jsonc-app"));
+    }
+
+    #[test]
+    fn test_detect_deno_node_modules_without_package_json() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("deno-npm-project");
+        create_file(&project.join("deno.json"), r#"{"nodeModulesDir": "auto"}"#);
+        create_file(
+            &project.join("node_modules/.deno/lodash/index.js"),
+            "// lodash",
+        );
+
+        let scanner = default_scanner(ProjectFilter::Deno);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Deno);
+    }
+
+    #[test]
+    fn test_detect_deno_node_modules_with_package_json_becomes_node() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        // deno.json + package.json + node_modules → Node project (not Deno)
+        let project = base.join("ambiguous-project");
+        create_file(&project.join("deno.json"), r"{}");
+        create_file(&project.join("package.json"), r#"{"name": "my-node-app"}"#);
+        create_file(&project.join("node_modules/dep/index.js"), "// dep");
+
+        let scanner = default_scanner(ProjectFilter::All);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Node);
+    }
+
+    #[test]
+    fn test_detect_deno_no_artifact_not_detected() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("deno-no-artifact");
+        create_file(&project.join("deno.json"), r"{}");
+
+        let scanner = default_scanner(ProjectFilter::Deno);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 0);
+    }
+
+    #[test]
+    fn test_build_directory_is_excluded() {
+        assert!(Scanner::is_excluded_directory(Path::new("/some/_build")));
+    }
+
+    // ── Rust workspace awareness tests ─────────────────────────────────
+
+    #[test]
+    fn test_is_cargo_workspace_root() {
+        let tmp = TempDir::new().unwrap();
+        let cargo_toml = tmp.path().join("Cargo.toml");
+
+        // A workspace root must contain a bare `[workspace]` section header.
+        create_file(
+            &cargo_toml,
+            "[workspace]\nmembers = [\"crate-a\", \"crate-b\"]\n",
+        );
+        assert!(Scanner::is_cargo_workspace_root(&cargo_toml));
+
+        // A regular package Cargo.toml is not a workspace root.
+        create_file(
+            &cargo_toml,
+            "[package]\nname = \"my-crate\"\nversion = \"0.1.0\"\n",
+        );
+        assert!(!Scanner::is_cargo_workspace_root(&cargo_toml));
+
+        // A non-existent file returns false.
+        assert!(!Scanner::is_cargo_workspace_root(Path::new(
+            "/nonexistent/Cargo.toml"
+        )));
+    }
+
+    #[test]
+    fn test_workspace_root_detected() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        // Workspace root: has [workspace] in Cargo.toml and a target/ dir with content.
+        let workspace = base.join("my-workspace");
+        create_file(
+            &workspace.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crate-a\"]\n\n[package]\nname = \"my-workspace\"\nversion = \"0.1.0\"\n",
+        );
+        create_file(&workspace.join("target/dummy"), "content");
+
+        let scanner = default_scanner(ProjectFilter::Rust);
+        let projects = scanner.scan_directory(base);
+
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].root_path, workspace);
+    }
+
+    #[test]
+    fn test_workspace_member_with_own_target_skipped() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        // Workspace root with content in target/.
+        let workspace = base.join("my-workspace");
+        create_file(
+            &workspace.join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crate-a\"]\n\n[package]\nname = \"my-workspace\"\nversion = \"0.1.0\"\n",
+        );
+        create_file(&workspace.join("target/dummy"), "content");
+
+        // Workspace member that also happens to have its own target/ directory.
+        let member = workspace.join("crate-a");
+        create_file(
+            &member.join("Cargo.toml"),
+            "[package]\nname = \"crate-a\"\nversion = \"0.1.0\"\n",
+        );
+        create_file(&member.join("target/dummy"), "content");
+
+        let scanner = default_scanner(ProjectFilter::Rust);
+        let projects = scanner.scan_directory(base);
+
+        // Only the workspace root should be reported; the member must be skipped.
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].root_path, workspace);
+    }
+
+    // ── PHP project detection tests ───────────────────────────────────────
+
+    #[test]
+    fn test_detect_php_project() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("php-project");
+        create_file(
+            &project.join("composer.json"),
+            r#"{"name": "acme/my-php-app", "require": {}}"#,
+        );
+        create_file(&project.join("vendor/autoload.php"), "<?php // autoloader");
+
+        let scanner = default_scanner(ProjectFilter::Php);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Php);
+        // Only the package component (after /) should be returned.
+        assert_eq!(projects[0].name.as_deref(), Some("my-php-app"));
+    }
+
+    #[test]
+    fn test_detect_php_no_vendor_not_detected() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("php-no-vendor");
+        create_file(&project.join("composer.json"), r#"{"name": "acme/my-app"}"#);
+
+        let scanner = default_scanner(ProjectFilter::Php);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 0);
+    }
+
+    #[test]
+    fn test_detect_php_fallback_to_dir_name() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("my-php-project");
+        // composer.json without a "name" field
+        create_file(&project.join("composer.json"), r#"{"require": {}}"#);
+        create_file(&project.join("vendor/autoload.php"), "<?php");
+
+        let scanner = default_scanner(ProjectFilter::Php);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name.as_deref(), Some("my-php-project"));
+    }
+
+    // ── Haskell project detection tests ──────────────────────────────────
+
+    #[test]
+    fn test_detect_haskell_stack_project() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("haskell-stack");
+        create_file(
+            &project.join("stack.yaml"),
+            "resolver: lts-21.0\npackages:\n  - .",
+        );
+        create_file(
+            &project.join("my-haskell-lib.cabal"),
+            "name:          my-haskell-lib\nversion:       0.1.0.0\n",
+        );
+        create_file(
+            &project.join(".stack-work/dist/x86_64-linux/ghc-9.4.7/build/Main.o"),
+            "object",
+        );
+
+        let scanner = default_scanner(ProjectFilter::Haskell);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Haskell);
+        assert_eq!(projects[0].name.as_deref(), Some("my-haskell-lib"));
+    }
+
+    #[test]
+    fn test_detect_haskell_cabal_project() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("haskell-cabal");
+        create_file(&project.join("cabal.project"), "packages: .\n");
+        create_file(
+            &project.join("my-cabal-lib.cabal"),
+            "name:          my-cabal-lib\nversion:       0.1.0.0\n",
+        );
+        create_file(
+            &project.join(
+                "dist-newstyle/build/x86_64-linux/ghc-9.4.7/my-cabal-lib-0.1.0.0/build/Main.o",
+            ),
+            "object",
+        );
+
+        let scanner = default_scanner(ProjectFilter::Haskell);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Haskell);
+        assert_eq!(projects[0].name.as_deref(), Some("my-cabal-lib"));
+    }
+
+    #[test]
+    fn test_detect_haskell_no_artifact_not_detected() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("haskell-no-artifact");
+        create_file(&project.join("stack.yaml"), "resolver: lts-21.0");
+
+        let scanner = default_scanner(ProjectFilter::Haskell);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 0);
+    }
+
+    // ── Dart/Flutter project detection tests ─────────────────────────────
+
+    #[test]
+    fn test_detect_dart_project_with_dart_tool() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("dart-project");
+        create_file(
+            &project.join("pubspec.yaml"),
+            "name: my_dart_app\nversion: 1.0.0\n",
+        );
+        create_file(
+            &project.join(".dart_tool/package_config.json"),
+            r#"{"configVersion": 2}"#,
+        );
+
+        let scanner = default_scanner(ProjectFilter::Dart);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Dart);
+        assert_eq!(projects[0].name.as_deref(), Some("my_dart_app"));
+    }
+
+    #[test]
+    fn test_detect_dart_project_with_build_dir() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("flutter-project");
+        create_file(
+            &project.join("pubspec.yaml"),
+            "name: my_flutter_app\nversion: 1.0.0\n",
+        );
+        create_file(
+            &project.join("build/flutter_assets/AssetManifest.json"),
+            "{}",
+        );
+
+        let scanner = default_scanner(ProjectFilter::Dart);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Dart);
+        assert_eq!(projects[0].name.as_deref(), Some("my_flutter_app"));
+    }
+
+    #[test]
+    fn test_detect_dart_no_artifact_not_detected() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("pubspec-only");
+        create_file(&project.join("pubspec.yaml"), "name: empty_project\n");
+
+        let scanner = default_scanner(ProjectFilter::Dart);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 0);
+    }
+
+    // ── Zig project detection tests ───────────────────────────────────────
+
+    #[test]
+    fn test_detect_zig_project_with_cache() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("zig-project");
+        create_file(
+            &project.join("build.zig"),
+            "const std = @import(\"std\");\npub fn build(b: *std.Build) void {}\n",
+        );
+        create_file(&project.join("zig-cache/h/abc123.h"), "// generated");
+
+        let scanner = default_scanner(ProjectFilter::Zig);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Zig);
+        // Zig falls back to directory name.
+        assert_eq!(projects[0].name.as_deref(), Some("zig-project"));
+    }
+
+    #[test]
+    fn test_detect_zig_project_with_out_dir() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("zig-out-project");
+        create_file(&project.join("build.zig"), "// zig build script");
+        create_file(&project.join("zig-out/bin/my-app"), "binary");
+
+        let scanner = default_scanner(ProjectFilter::Zig);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Zig);
+    }
+
+    #[test]
+    fn test_detect_zig_no_artifact_not_detected() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("zig-no-artifact");
+        create_file(&project.join("build.zig"), "// zig build script");
+
+        let scanner = default_scanner(ProjectFilter::Zig);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 0);
+    }
+
+    #[test]
+    fn test_zig_cache_directory_is_excluded() {
+        assert!(Scanner::is_excluded_directory(Path::new("/some/zig-cache")));
+        assert!(Scanner::is_excluded_directory(Path::new("/some/zig-out")));
+        assert!(Scanner::is_excluded_directory(Path::new(
+            "/some/dist-newstyle"
+        )));
+    }
+
+    // ── Scala project detection tests ─────────────────────────────────────
+
+    #[test]
+    fn test_detect_scala_project() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("scala-project");
+        create_file(
+            &project.join("build.sbt"),
+            "name := \"my-scala-app\"\nscalaVersion := \"3.3.0\"\n",
+        );
+        create_file(
+            &project.join("target/scala-3.3.0/classes/Main.class"),
+            "bytecode",
+        );
+
+        let scanner = default_scanner(ProjectFilter::Scala);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Scala);
+        assert_eq!(projects[0].name.as_deref(), Some("my-scala-app"));
+    }
+
+    #[test]
+    fn test_detect_scala_no_target_not_detected() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("sbt-only");
+        create_file(&project.join("build.sbt"), "name := \"unbuilt-project\"\n");
+
+        let scanner = default_scanner(ProjectFilter::Scala);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 0);
+    }
+
+    #[test]
+    fn test_detect_scala_fallback_to_dir_name() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        let project = base.join("my-scala-project");
+        // build.sbt without a name := field
+        create_file(&project.join("build.sbt"), "scalaVersion := \"3.3.0\"\n");
+        create_file(&project.join("target/scala-3.3.0/Main.class"), "bytecode");
+
+        let scanner = default_scanner(ProjectFilter::Scala);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].name.as_deref(), Some("my-scala-project"));
+    }
+
+    #[test]
+    fn test_scala_detected_before_java_for_build_sbt_projects() {
+        let tmp = TempDir::new().unwrap();
+        let base = tmp.path();
+
+        // A project with both build.sbt and pom.xml should be detected as Scala.
+        let project = base.join("scala-maven-project");
+        create_file(&project.join("build.sbt"), "name := \"scala-maven\"\n");
+        create_file(
+            &project.join("pom.xml"),
+            "<project><artifactId>scala-maven</artifactId></project>",
+        );
+        create_file(&project.join("target/scala-3.3.0/Main.class"), "bytecode");
+
+        let scanner = default_scanner(ProjectFilter::All);
+        let projects = scanner.scan_directory(base);
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].kind, ProjectType::Scala);
     }
 }

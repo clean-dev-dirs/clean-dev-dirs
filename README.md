@@ -1,6 +1,14 @@
-# 🧹 clean-dev-dirs
+<pre>
+        ▀▀█                                    █                           █    ▀                 
+  ▄▄▄     █     ▄▄▄    ▄▄▄   ▄ ▄▄           ▄▄▄█   ▄▄▄   ▄   ▄          ▄▄▄█  ▄▄▄     ▄ ▄▄   ▄▄▄  
+ █▀  ▀    █    █▀  █  ▀   █  █▀  █         █▀ ▀█  █▀  █  ▀▄ ▄▀         █▀ ▀█    █     █▀  ▀ █   ▀ 
+ █        █    █▀▀▀▀  ▄▀▀▀█  █   █   ▀▀▀   █   █  █▀▀▀▀   █▄█    ▀▀▀   █   █    █     █      ▀▀▀▄ 
+ ▀█▄▄▀    ▀▄▄  ▀█▄▄▀  ▀▄▄▀█  █   █         ▀█▄██  ▀█▄▄▀    █           ▀█▄██  ▄▄█▄▄   █     ▀▄▄▄▀ 
+</pre>
 
-> A fast and efficient CLI tool for recursively cleaning Rust `target/`, Node.js `node_modules/`, Python cache, and Go `vendor/` directories to reclaim disk space.
+> A fast and efficient CLI tool for recursively cleaning development build directories across 16 language ecosystems to reclaim disk space. Supports Rust, Node.js, Python, Go, Java/Kotlin, C/C++, Swift, .NET/C#, Ruby, Elixir, Deno, PHP, Haskell, Dart/Flutter, Zig, and Scala.
+
+> Created and maintained by [Tom Planche](https://github.com/TomPlanche). The GitHub organization exists solely to host the Homebrew tap alongside the main repository.
 
 <p align="center">
   <a href="https://crates.io/crates/clean-dev-dirs"><img src="https://img.shields.io/crates/v/clean-dev-dirs.svg" alt="Crates.io Version"></a>
@@ -19,6 +27,12 @@ cargo install clean-dev-dirs
 # Clean all development directories in current directory
 clean-dev-dirs
 
+# Clean a specific directory
+clean-dev-dirs ~/Projects
+
+# Clean multiple directories at once
+clean-dev-dirs ~/Projects ~/work/client
+
 # Preview what would be cleaned (dry run)
 clean-dev-dirs --dry-run
 
@@ -28,21 +42,25 @@ clean-dev-dirs --interactive
 
 ## Features
 
-- **Multi-language support**: Clean Rust (`target/`), Node.js (`node_modules/`), Python (cache dirs), and Go (`vendor/`) build artifacts
-- **Executable preservation**: Optionally keep compiled binaries while removing build artifacts
+- **Multi-language support**: Clean build artifacts across 16 ecosystems — Rust (`target/`), Node.js (`node_modules/`), Python (cache dirs), Go (`vendor/`), Java/Kotlin (`target/`/`build/`), C/C++ (`build/`), Swift (`.build/`), .NET/C# (`bin/`+`obj/`), Ruby (`.bundle/`/`vendor/bundle/`), Elixir (`_build/`), Deno (`vendor/`/`node_modules/`), PHP (`vendor/`), Haskell (`.stack-work/`/`dist-newstyle/`), Dart/Flutter (`.dart_tool/`/`build/`), Zig (`zig-cache/`/`zig-out/`), and Scala (`target/`)
 - **Parallel scanning**: Lightning-fast directory traversal using multithreading
 - **Smart filtering**: Filter by project size, modification time, and project type
+- **Flexible sorting**: Sort results by size, age, name, or project type with `--sort`
 - **Interactive mode**: Choose which projects to clean with an intuitive interface
 - **Dry-run mode**: Preview what would be cleaned without actually deleting anything
 - **Progress indicators**: Real-time feedback during scanning and cleaning operations
+- **Executable preservation**: Keep compiled binaries before cleaning with `--keep-executables`
+- **Safe by default**: Moves directories to the system trash for recoverable deletions; use `--permanent` when you want `rm -rf`
+- **JSON output**: Structured `--json` output for scripting, piping, and dashboard integration
 - **Detailed statistics**: See total space that can be reclaimed before cleaning
+- **Persistent configuration**: Set defaults in `~/.config/clean-dev-dirs/config.toml` so you don't repeat flags
 - **Flexible configuration**: Combine multiple filters and options for precise control
 
 ## Inspiration
 
-This project is inspired by [cargo-clean-all](https://github.com/dnlmlr/cargo-clean-all), a Rust-specific tool for cleaning cargo projects. We've improved upon the original concept with:
+This project is inspired by [cargo-clean-all](https://github.com/dnlmlr/cargo-clean-all), a Rust-specific tool for cleaning cargo projects. I've improved upon the original concept with:
 
-- **Multi-language support**: Extended beyond Rust to support Node.js, Python, and Go projects
+- **Multi-language support**: Extended beyond Rust to support Node.js, Python, Go, Java/Kotlin, C/C++, Swift, .NET/C#, Ruby, Elixir, Deno, PHP, Haskell, Dart/Flutter, Zig, and Scala projects
 - **Parallel scanning**: Significantly faster directory traversal using multithreading
 - **Enhanced filtering**: More granular control over what gets cleaned
 - **Cleaner code architecture**: Well-structured, modular codebase for better maintainability
@@ -65,7 +83,7 @@ cargo install --path .
 
 ### Requirements
 
-- Rust 2021 edition or later
+- Rust 2024 edition or later
 - Cargo package manager
 
 ## Usage
@@ -78,6 +96,9 @@ clean-dev-dirs
 
 # Clean a specific directory
 clean-dev-dirs ~/Projects
+
+# Clean multiple directories at once
+clean-dev-dirs ~/Projects ~/work/client ~/personal/code
 
 # Preview what would be cleaned (dry run)
 clean-dev-dirs --dry-run
@@ -103,6 +124,42 @@ clean-dev-dirs -p python
 # Clean only Go projects
 clean-dev-dirs -p go
 
+# Clean only Java/Kotlin projects
+clean-dev-dirs -p java
+
+# Clean only C/C++ projects
+clean-dev-dirs -p cpp
+
+# Clean only Swift projects
+clean-dev-dirs -p swift
+
+# Clean only .NET/C# projects
+clean-dev-dirs -p dotnet
+
+# Clean only Ruby projects
+clean-dev-dirs -p ruby
+
+# Clean only Elixir projects
+clean-dev-dirs -p elixir
+
+# Clean only Deno projects
+clean-dev-dirs -p deno
+
+# Clean only PHP projects
+clean-dev-dirs -p php
+
+# Clean only Haskell projects
+clean-dev-dirs -p haskell
+
+# Clean only Dart/Flutter projects
+clean-dev-dirs -p dart
+
+# Clean only Zig projects
+clean-dev-dirs -p zig
+
+# Clean only Scala projects
+clean-dev-dirs -p scala
+
 # Clean all project types (default)
 clean-dev-dirs -p all
 ```
@@ -120,6 +177,166 @@ clean-dev-dirs --keep-days 30
 clean-dev-dirs --keep-size 50MB --keep-days 7
 ```
 
+### Name Filtering
+
+```bash
+# Only clean projects whose name matches a glob pattern
+clean-dev-dirs --name "my-app*"
+
+# Glob with single-character wildcard
+clean-dev-dirs --name "app-?"
+
+# Use a regular expression (prefix with regex:)
+clean-dev-dirs --name "regex:^client-.*"
+
+# Combine with other filters
+clean-dev-dirs --name "regex:^client-" --keep-size 50MB --dry-run
+```
+
+### Sorting
+
+```bash
+# Sort projects by size (largest first)
+clean-dev-dirs --sort size
+
+# Sort projects by age (oldest first)
+clean-dev-dirs --sort age
+
+# Sort projects by name (alphabetical)
+clean-dev-dirs --sort name
+
+# Sort projects grouped by type (Go, Node, Python, Rust)
+clean-dev-dirs --sort type
+
+# Reverse any sort order (e.g. smallest first)
+clean-dev-dirs --sort size --reverse
+
+# Combine with other options
+clean-dev-dirs ~/Projects --sort size --keep-size 50MB --dry-run
+```
+
+### Keeping Executables
+
+```bash
+# Preserve compiled binaries before cleaning
+clean-dev-dirs --keep-executables
+# or use short flag
+clean-dev-dirs -k
+
+# In interactive mode (-i) without -k, you will be prompted:
+#   "Keep compiled executables before cleaning? (y/N)"
+clean-dev-dirs --interactive
+
+# Combine with other options
+clean-dev-dirs ~/Projects -p rust -k --keep-days 30
+```
+
+When enabled, compiled outputs are copied to `<project>/bin/` before the build directory is deleted:
+
+- **Rust**: executables from `target/release/` and `target/debug/` are copied to `bin/release/` and `bin/debug/`
+- **Python**: `.whl` files from `dist/` and `.so`/`.pyd` C extensions from `build/` are copied to `bin/`
+- **Node.js / Go / Java / C++ / Swift / .NET / Ruby / Elixir / Deno / PHP / Haskell / Dart / Zig / Scala**: no-op (their cleaned directories contain dependencies or build outputs not easily preservable)
+
+### Trash Support (Default)
+
+By default, build directories are moved to the system trash (Trash on macOS/Linux, Recycle Bin on Windows) instead of being permanently removed. This means all deletions are recoverable -- just check your trash.
+
+```bash
+# Default behavior: moves to trash (safe, recoverable)
+clean-dev-dirs
+
+# Permanently delete instead (rm -rf style, irreversible)
+clean-dev-dirs --permanent
+
+# Combine permanent deletion with other options
+clean-dev-dirs --permanent --keep-executables -y
+```
+
+To make permanent deletion the default, set `use_trash = false` in your config file:
+
+```toml
+[execution]
+use_trash = false
+```
+
+### JSON Output
+
+Use `--json` to get structured output for scripting, piping to `jq`, or feeding into dashboards:
+
+```bash
+# List all projects as JSON (dry run)
+clean-dev-dirs --json --dry-run
+
+# Clean and get machine-readable results
+clean-dev-dirs --json --yes ~/Projects
+
+# Pipe to jq for further processing
+clean-dev-dirs --json --dry-run | jq '.projects[] | select(.build_artifacts_size > 1000000000)'
+
+# Get total reclaimable space across Rust projects
+clean-dev-dirs --json --dry-run -p rust | jq '.summary.total_size_formatted'
+```
+
+When `--json` is active, all human-readable output (colors, progress bars, emojis) is suppressed and a single JSON document is printed to stdout. `--json` is incompatible with `--interactive` and implies `--yes` behavior (no confirmation prompts).
+
+<details>
+<summary>Example JSON output (dry run)</summary>
+
+```json
+{
+  "mode": "dry_run",
+  "projects": [
+    {
+      "name": "my-rust-app",
+      "type": "rust",
+      "root_path": "/home/user/projects/rust-app",
+      "build_artifacts_paths": ["/home/user/projects/rust-app/target"],
+      "build_artifacts_size": 2300000000,
+      "build_artifacts_size_formatted": "2.30 GB"
+    },
+    {
+      "name": "web-frontend",
+      "type": "node",
+      "root_path": "/home/user/projects/web-app",
+      "build_artifacts_paths": ["/home/user/projects/web-app/node_modules"],
+      "build_artifacts_size": 856000000,
+      "build_artifacts_size_formatted": "856.00 MB"
+    }
+  ],
+  "summary": {
+    "total_projects": 2,
+    "total_size": 3156000000,
+    "total_size_formatted": "3.16 GB",
+    "by_type": {
+      "node": { "count": 1, "size": 856000000, "size_formatted": "856.00 MB" },
+      "rust": { "count": 1, "size": 2300000000, "size_formatted": "2.30 GB" }
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>Example JSON output (after cleanup)</summary>
+
+```json
+{
+  "mode": "cleanup",
+  "projects": [ "..." ],
+  "summary": { "..." },
+  "cleanup": {
+    "success_count": 2,
+    "failure_count": 0,
+    "total_freed": 3156000000,
+    "total_freed_formatted": "3.16 GB",
+    "errors": []
+  }
+}
+```
+
+</details>
+
 ### Advanced Options
 
 ```bash
@@ -132,14 +349,88 @@ clean-dev-dirs --verbose
 # Skip specific directories during scanning
 clean-dev-dirs --skip node_modules --skip .git
 
+# Limit how deep into the directory tree the scanner goes
+clean-dev-dirs --max-depth 3
+
 # Non-interactive mode (auto-confirm)
 clean-dev-dirs --yes
 
-# Keep compiled executables (preserves binaries while cleaning build artifacts)
-clean-dev-dirs --keep-executables
-
 # Combine multiple options
 clean-dev-dirs ~/Projects -p rust --keep-size 100MB --keep-days 30 --dry-run
+```
+
+### Configuration File
+
+You can store default settings in a TOML file so you don't have to repeat the same flags every time. CLI arguments always override config file values.
+
+**Location:** `~/.config/clean-dev-dirs/config.toml` (Linux/macOS) or `%APPDATA%\clean-dev-dirs\config.toml` (Windows)
+
+Use the built-in `config` subcommand to manage the file without hunting for the path:
+
+```bash
+# Find out where the config file lives on your platform
+clean-dev-dirs config path
+
+# Write a fully commented-out template (does nothing if the file already exists)
+clean-dev-dirs config init
+
+# Print every setting with its current value or default
+clean-dev-dirs config show
+```
+
+```toml
+# Default project type filter
+project_type = "rust"
+
+# Default directories to scan — use dirs for multiple roots (~ is expanded)
+dirs = ["~/Projects", "~/work/client"]
+
+# Legacy single-directory option (ignored when dirs is set)
+# dir = "~/Projects"
+
+[filtering]
+keep_size = "50MB"
+keep_days = 7
+sort = "size"       # "size", "age", "name", or "type"
+reverse = false
+# name_pattern = "my-*"   # glob or "regex:^prefix-.*"
+
+[scanning]
+threads = 4
+verbose = true
+skip = [".cargo", "vendor"]
+ignore = [".git"]
+max_depth = 5   # optional; omit for unlimited depth
+
+[execution]
+keep_executables = true
+interactive = false
+dry_run = false
+use_trash = true          # default; set to false for permanent deletion
+```
+
+All fields are optional — only set what you need. An absent config file is silently ignored; a malformed one produces an error message.
+
+**Layering rules:**
+
+| Value type | Behavior |
+|------------|----------|
+| Scalar (`keep_size`, `threads`, `project_type`, `sort`, …) | CLI wins if provided, otherwise config file, otherwise built-in default |
+| Directory roots (`dirs`/`dir`) | CLI args win; then config `dirs` (plural); then config `dir` (legacy); then current directory |
+| Boolean flag (`--dry-run`, `--verbose`, `--reverse`, …) | `true` if the CLI flag is present **or** the config file sets it to `true` |
+| List (`skip`, `ignore`) | **Merged** — config file entries first, then CLI entries appended |
+
+**Examples:**
+
+```bash
+# Uses keep_size = "50MB" from config, overrides project_type on CLI
+clean-dev-dirs -p node
+
+# CLI --keep-size wins over the config file value
+clean-dev-dirs --keep-size 200MB
+
+# skip dirs from config (.cargo, vendor) + CLI (node_modules) are all active
+clean-dev-dirs --skip node_modules
 ```
 
 ### Common Use Cases
@@ -169,24 +460,75 @@ clean-dev-dirs ~/code --keep-size 100MB --keep-days 60
 clean-dev-dirs /large/directory --threads 16 --verbose
 ```
 
-**6. Clean while preserving executables:**
+**6. Clean Rust projects but keep the compiled binaries:**
 ```bash
-clean-dev-dirs ~/rust-projects -p rust --keep-executables
+clean-dev-dirs ~/Projects -p rust -k
+```
+
+**7. Find the biggest space hogs:**
+```bash
+clean-dev-dirs ~/Projects --sort size --dry-run
+```
+
+**8. Clean the most stale projects first:**
+```bash
+clean-dev-dirs ~/code --sort age --interactive
+```
+
+**9. Get a JSON report for a CI/CD dashboard:**
+```bash
+clean-dev-dirs ~/Projects --json --dry-run | jq '.summary'
+```
+
+**10. Permanently delete (skip the trash):**
+```bash
+clean-dev-dirs ~/Projects --permanent --yes
+```
+
+**11. Scan multiple root directories at once:**
+```bash
+clean-dev-dirs ~/Projects ~/work/client ~/personal/code --sort size --dry-run
+```
+
+**12. Clean only projects whose name starts with `client-`:**
+```bash
+clean-dev-dirs ~/Projects --name "regex:^client-" --dry-run
+```
+
+**13. Set up a config file for your usual workflow:**
+```bash
+# Generate a commented-out template at the right platform path
+clean-dev-dirs config init
+
+# Open it in your editor, uncomment and set what you need, then just run:
+clean-dev-dirs
 ```
 
 ## Command Reference
+
+### Config Subcommand
+
+```
+clean-dev-dirs config <COMMAND>
+```
+
+| Command | Description |
+|---------|-------------|
+| `config path` | Print the platform-specific path to the config file |
+| `config show` | Print every setting with its current value or annotated default |
+| `config init` | Write a fully commented-out template if no config file exists yet |
 
 ### Main Arguments
 
 | Argument | Description |
 |----------|-------------|
-| `[DIR]` | Directory to search for projects (default: current directory) |
+| `[DIRS]...` | One or more directories to search for projects (default: current directory). Multiple roots are deduplicated. |
 
 ### Project Type Filter
 
 | Option | Short | Values | Description |
 |--------|-------|--------|-------------|
-| `--project-type` | `-p` | `all`, `rust`, `node`, `python`, `go` | Filter by project type (default: `all`) |
+| `--project-type` | `-p` | `all`, `rust`, `node`, `python`, `go`, `java`, `cpp`, `swift`, `dotnet`, `ruby`, `elixir`, `deno`, `php`, `haskell`, `dart`, `zig`, `scala` | Filter by project type (default: `all`) |
 
 ### Filtering Options
 
@@ -194,6 +536,22 @@ clean-dev-dirs ~/rust-projects -p rust --keep-executables
 |--------|-------|-------------|
 | `--keep-size` | `-s` | Ignore projects with build dir smaller than specified size |
 | `--keep-days` | `-d` | Ignore projects modified in the last N days |
+| `--name` | | Filter by project name using a glob or `regex:` pattern |
+
+### Sorting Options
+
+| Option | Values | Description |
+|--------|--------|-------------|
+| `--sort` | `size`, `age`, `name`, `type` | Sort projects before display (default: scan order) |
+| `--reverse` | | Reverse the sort order |
+
+Default sort directions: `size` largest first, `age` oldest first, `name` A-Z, `type` alphabetical by type name.
+
+### Output Options
+
+| Option | Description |
+|--------|-------------|
+| `--json` | Output results as a single JSON object for scripting/piping (incompatible with `--interactive`) |
 
 ### Execution Options
 
@@ -202,7 +560,8 @@ clean-dev-dirs ~/rust-projects -p rust --keep-executables
 | `--yes` | `-y` | Don't ask for confirmation; clean all detected projects |
 | `--dry-run` | | List cleanable projects without actually cleaning |
 | `--interactive` | `-i` | Use interactive project selection |
-| `--keep-executables` | `-k` | Preserve compiled binaries while removing build artifacts |
+| `--keep-executables` | `-k` | Copy compiled executables to `<project>/bin/` before cleaning |
+| `--permanent` | | Permanently delete directories instead of moving them to the system trash |
 
 ### Scanning Options
 
@@ -211,6 +570,7 @@ clean-dev-dirs ~/rust-projects -p rust --keep-executables
 | `--threads` | `-t` | Number of threads for directory scanning (default: CPU cores) |
 | `--verbose` | `-v` | Show access errors during scanning |
 | `--skip` | | Directories to skip during scanning (can be specified multiple times) |
+| `--max-depth` | | Maximum directory depth to scan (default: unlimited) |
 
 ## Size Formats
 
@@ -235,7 +595,7 @@ clean-dev-dirs --keep-size 500000   # 500,000 bytes
 The tool automatically detects development projects by looking for characteristic files and directories:
 
 ### Rust Projects
-- **Detection criteria**: Both `Cargo.toml` and `target/` directory must exist
+- **Detection criteria**: Both `Cargo.toml` and `target/` directory must exist, and the directory is not a workspace member (workspace members share the root `target/` and are skipped)
 - **Cleans**: `target/` directory
 - **Name extraction**: From `[package] name` in `Cargo.toml`
 
@@ -248,12 +608,13 @@ The tool automatically detects development projects by looking for characteristi
 - **Detection criteria**:
   - At least one config file: `requirements.txt`, `setup.py`, `pyproject.toml`, `setup.cfg`, `Pipfile`, `pipenv.lock`, `poetry.lock`
   - At least one cache/build directory exists
-- **Cleans**: The largest cache/build directory among:
+- **Cleans**: All present cache/build directories:
   - `__pycache__`
   - `.pytest_cache`
   - `venv` / `.venv`
   - `build` / `dist`
   - `.eggs` / `.tox` / `.coverage`
+  - Any `*.egg-info` directories found in the project root
 - **Name extraction**: From `pyproject.toml` (project name or tool.poetry name) or `setup.py`
 
 ### Go Projects
@@ -261,50 +622,76 @@ The tool automatically detects development projects by looking for characteristi
 - **Cleans**: `vendor/` directory
 - **Name extraction**: From module path in `go.mod`
 
-## Executable Preservation
+### Java/Kotlin Projects
+- **Detection criteria**:
+  - Maven: `pom.xml` + `target/` directory
+  - Gradle: `build.gradle` or `build.gradle.kts` + `build/` directory
+- **Cleans**: `target/` (Maven) or `build/` (Gradle) directory
+- **Name extraction**: From `<artifactId>` in `pom.xml`, or `rootProject.name` in `settings.gradle`
 
-The `--keep-executables` flag allows you to reclaim disk space from build artifacts while preserving your compiled binaries. This is particularly useful when:
+### C/C++ Projects
+- **Detection criteria**: `CMakeLists.txt` or `Makefile` + `build/` directory
+- **Cleans**: `build/` directory
+- **Name extraction**: From `project()` in `CMakeLists.txt`, or falls back to directory name
 
-- You want to free up space but keep your working executables
-- You're cleaning projects you're actively developing
-- You want to avoid recompiling release binaries
+### Swift Projects
+- **Detection criteria**: Both `Package.swift` and `.build/` directory must exist
+- **Cleans**: `.build/` directory
+- **Name extraction**: From `name:` in `Package.swift`
 
-### How It Works
+### .NET/C# Projects
+- **Detection criteria**: At least one `.csproj` file + `bin/` and/or `obj/` directories
+- **Cleans**: Both `bin/` and `obj/` directories when present
+- **Name extraction**: From the `.csproj` filename
 
-**For Rust Projects:**
-- Scans `target/debug/` and `target/release/` for executable files
-- Backs up executables to a temporary location
-- Removes the entire `target/` directory
-- Restores executables to their original locations
-- Example: Keeps `target/release/my-app` but removes all dependencies and intermediate artifacts
+### Ruby Projects
+- **Detection criteria**: Both `Gemfile` and `.bundle/` or `vendor/bundle/` directory must exist
+- **Cleans**: Both `.bundle/` and `vendor/bundle/` directories when present
+- **Name extraction**: From the `name` field in a `.gemspec` file, or falls back to directory name
 
-**For Go Projects:**
-- Preserves executable files in the `vendor/bin/` directory
-- Removes all other vendor dependencies
-- Note: Most Go projects don't store executables in the vendor directory
+### Elixir Projects
+- **Detection criteria**: Both `mix.exs` and `_build/` directory must exist
+- **Cleans**: `_build/` directory
+- **Name extraction**: From `app:` atom in `mix.exs`, or falls back to directory name
 
-**For Node.js and Python Projects:**
-- No effect (these languages don't produce standalone compiled executables)
+### Deno Projects
+- **Detection criteria**: `deno.json` or `deno.jsonc` + `vendor/` directory (primary), or `node_modules/` without `package.json` (secondary)
+- **Cleans**: `vendor/` or `node_modules/` directory
+- **Name extraction**: From `name` field in `deno.json`/`deno.jsonc`, or falls back to directory name
 
-### Example Usage
+### PHP Projects
+- **Detection criteria**: Both `composer.json` and `vendor/` directory must exist
+- **Cleans**: `vendor/` directory
+- **Name extraction**: From `name` field in `composer.json` (the package component after `/`), or falls back to directory name
 
-```bash
-# Clean Rust projects but keep release binaries
-clean-dev-dirs ~/rust-workspace -p rust --keep-executables
+### Haskell Projects
+- **Detection criteria**:
+  - Stack: `stack.yaml` + `.stack-work/` directory
+  - Cabal: `cabal.project` or a `*.cabal` file + `dist-newstyle/` directory
+- **Cleans**: `.stack-work/` (Stack) or `dist-newstyle/` (Cabal)
+- **Name extraction**: From `name:` field in a `*.cabal` file, then `package.yaml` (hpack), or falls back to directory name
 
-# Interactive cleaning with executable preservation
-clean-dev-dirs --interactive --keep-executables
+### Dart/Flutter Projects
+- **Detection criteria**: `pubspec.yaml` + `.dart_tool/` and/or `build/` directory must exist
+- **Cleans**: `.dart_tool/` and/or `build/` directories when present
+- **Name extraction**: From `name:` field in `pubspec.yaml`, or falls back to directory name
 
-# Combine with other filters
-clean-dev-dirs --keep-executables --keep-days 30 --keep-size 100MB
-```
+### Zig Projects
+- **Detection criteria**: `build.zig` + `zig-cache/` and/or `zig-out/` directory must exist
+- **Cleans**: `zig-cache/` and/or `zig-out/` directories when present
+- **Name extraction**: Falls back to directory name (no standard name field in `build.zig`)
+
+### Scala Projects
+- **Detection criteria**: Both `build.sbt` and `target/` directory must exist
+- **Cleans**: `target/` directory
+- **Name extraction**: From `name := "..."` assignment in `build.sbt`, or falls back to directory name
 
 ## Safety Features
 
+- **Trash by default**: Directories are moved to the system trash for recoverable cleanups; use `--permanent` to override
 - **Dry-run mode**: Preview all operations before execution with `--dry-run`
 - **Interactive confirmation**: Manually select projects to clean with `--interactive`
 - **Intelligent filtering**: Skip recently modified or small projects with `--keep-days` and `--keep-size`
-- **Executable preservation**: Keep compiled binaries with `--keep-executables`
 - **Error handling**: Graceful handling of permission errors and inaccessible files
 - **Read-only scanning**: Never modifies files during the scanning phase
 - **Clear output**: Color-coded, human-readable output with project types and sizes
@@ -319,6 +706,18 @@ The tool provides beautiful, colored output including:
 | 📦 | Node.js projects |
 | 🐍 | Python projects |
 | 🐹 | Go projects |
+| ☕ | Java/Kotlin projects |
+| ⚙️ | C/C++ projects |
+| 🐦 | Swift projects |
+| 🔷 | .NET/C# projects |
+| 💎 | Ruby projects |
+| 💧 | Elixir projects |
+| 🦕 | Deno projects |
+| 🐘 | PHP projects |
+| λ | Haskell projects |
+| 🎯 | Dart/Flutter projects |
+| ⚡ | Zig projects |
+| 🔴 | Scala projects |
 
 ### Sample Output
 
@@ -397,10 +796,10 @@ fn detect_your_language_project(&self, path: &Path, errors: &Arc<Mutex<Vec<Strin
     if config_file.exists() && build_dir.exists() {
         let name = self.extract_your_language_project_name(&config_file, errors);
 
-        let build_arts = BuildArtifacts {
+        let build_arts = vec![BuildArtifacts {
             path: build_dir,
             size: 0, // Will be calculated later
-        };
+        }];
 
         return Some(Project::new(
             ProjectType::YourLanguage,
@@ -433,18 +832,7 @@ Consider these when testing your implementation:
 - **Name extraction edge cases**: Handle malformed or missing project names gracefully
 - **Performance**: Ensure detection doesn't significantly slow down scanning
 
-#### 7. **Example Languages to Add**
-
-Some languages that would be great additions:
-
-- **C/C++**: Look for `CMakeLists.txt`/`Makefile` + `build/` or `cmake-build-*/`
-- **Java**: Look for `pom.xml`/`build.gradle` + `target/` or `build/`
-- **C#**: Look for `*.csproj`/`*.sln` + `bin/`/`obj/`
-- **PHP**: Look for `composer.json` + `vendor/`
-- **Ruby**: Look for `Gemfile` + `vendor/bundle/`
-- **Swift**: Look for `Package.swift` + `.build/`
-
-#### 8. **Pull Request Guidelines**
+#### 7. **Pull Request Guidelines**
 
 When submitting your language support:
 
@@ -474,6 +862,9 @@ Built with excellent open-source libraries:
 - [Inquire](https://crates.io/crates/inquire) - Interactive prompts and selection
 - [WalkDir](https://crates.io/crates/walkdir) - Recursive directory iteration
 - [Humansize](https://crates.io/crates/humansize) - Human-readable file sizes
+- [Serde](https://crates.io/crates/serde) + [serde_json](https://crates.io/crates/serde_json) + [TOML](https://crates.io/crates/toml) - Serialization, JSON output, and configuration file parsing
+- [dirs](https://crates.io/crates/dirs) - Cross-platform config directory resolution
+- [trash](https://crates.io/crates/trash) - Cross-platform system trash support
 
 ## Support
 
