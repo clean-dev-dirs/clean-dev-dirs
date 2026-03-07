@@ -71,7 +71,7 @@ pub enum ProjectFilter {
 ///
 /// This struct contains the filtering options used to determine which projects
 /// should be considered for cleanup based on size and modification time.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct FilterOptions {
     /// Minimum size threshold for build directories
     pub keep_size: String,
@@ -110,7 +110,7 @@ pub enum SortCriteria {
 ///
 /// Controls how the list of projects is ordered before display or processing.
 /// When `criteria` is `None`, projects are displayed in scan order.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SortOptions {
     /// The sorting criterion to apply, or `None` to preserve scan order
     pub criteria: Option<SortCriteria>,

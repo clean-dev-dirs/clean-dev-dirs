@@ -121,7 +121,7 @@ pub enum ProjectType {
 ///
 /// This struct contains metadata about the build directory or artifacts
 /// that are candidates for cleanup, including their location and total size.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct BuildArtifacts {
     /// Path to the build directory (target/ or `node_modules`/)
     ///
@@ -142,7 +142,7 @@ pub struct BuildArtifacts {
 /// This struct encapsulates all information about a development project,
 /// including its type, location, build artifacts, and metadata extracted
 /// from project configuration files.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Project {
     /// Type of the project (Rust or Node.js)
     pub kind: ProjectType,

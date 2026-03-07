@@ -717,39 +717,43 @@ mod tests {
     // ── NameMatcher tests ───────────────────────────────────────────────
 
     #[test]
-    fn test_name_matcher_none_passes_all() {
-        let matcher = compile_name_matcher(None).unwrap();
+    fn test_name_matcher_none_passes_all() -> anyhow::Result<()> {
+        let matcher = compile_name_matcher(None)?;
         assert!(matcher.is_match("any-name"));
         assert!(matcher.is_match(""));
         assert!(matcher.is_match("something-else"));
+        Ok(())
     }
 
     #[test]
-    fn test_name_matcher_glob_star() {
-        let matcher = compile_name_matcher(Some("my-app*")).unwrap();
+    fn test_name_matcher_glob_star() -> anyhow::Result<()> {
+        let matcher = compile_name_matcher(Some("my-app*"))?;
         assert!(matcher.is_match("my-app"));
         assert!(matcher.is_match("my-app-v2"));
         assert!(matcher.is_match("my-appXYZ"));
         assert!(!matcher.is_match("other-app"));
         assert!(!matcher.is_match(""));
+        Ok(())
     }
 
     #[test]
-    fn test_name_matcher_glob_question_mark() {
-        let matcher = compile_name_matcher(Some("app-?")).unwrap();
+    fn test_name_matcher_glob_question_mark() -> anyhow::Result<()> {
+        let matcher = compile_name_matcher(Some("app-?"))?;
         assert!(matcher.is_match("app-1"));
         assert!(matcher.is_match("app-a"));
         assert!(!matcher.is_match("app-12"));
         assert!(!matcher.is_match("app-"));
+        Ok(())
     }
 
     #[test]
-    fn test_name_matcher_regex_prefix() {
-        let matcher = compile_name_matcher(Some("regex:^client-.*")).unwrap();
+    fn test_name_matcher_regex_prefix() -> anyhow::Result<()> {
+        let matcher = compile_name_matcher(Some("regex:^client-.*"))?;
         assert!(matcher.is_match("client-api"));
         assert!(matcher.is_match("client-web"));
         assert!(!matcher.is_match("server-api"));
         assert!(!matcher.is_match(""));
+        Ok(())
     }
 
     #[test]
@@ -767,7 +771,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_projects_by_name_glob() {
+    fn test_filter_projects_by_name_glob() -> anyhow::Result<()> {
         let projects = vec![
             create_test_project(
                 ProjectType::Rust,
@@ -798,17 +802,18 @@ mod tests {
             name_pattern: Some("my-app*".to_string()),
         };
 
-        let filtered = filter_projects(projects, &filter_opts).unwrap();
+        let filtered = filter_projects(projects, &filter_opts)?;
         assert_eq!(filtered.len(), 2);
         assert!(
             filtered
                 .iter()
                 .all(|p| p.name.as_deref().unwrap_or("").starts_with("my-app"))
         );
+        Ok(())
     }
 
     #[test]
-    fn test_filter_projects_by_name_regex() {
+    fn test_filter_projects_by_name_regex() -> anyhow::Result<()> {
         let projects = vec![
             create_test_project(
                 ProjectType::Rust,
@@ -839,17 +844,18 @@ mod tests {
             name_pattern: Some("regex:^client-.*".to_string()),
         };
 
-        let filtered = filter_projects(projects, &filter_opts).unwrap();
+        let filtered = filter_projects(projects, &filter_opts)?;
         assert_eq!(filtered.len(), 2);
         assert!(
             filtered
                 .iter()
                 .all(|p| p.name.as_deref().unwrap_or("").starts_with("client-"))
         );
+        Ok(())
     }
 
     #[test]
-    fn test_filter_projects_name_none_no_match() {
+    fn test_filter_projects_name_none_no_match() -> anyhow::Result<()> {
         let projects = vec![
             create_test_project(ProjectType::Rust, "/a", "/a/target", 1000, None),
             create_test_project(
@@ -867,9 +873,10 @@ mod tests {
             name_pattern: Some("named*".to_string()),
         };
 
-        let filtered = filter_projects(projects, &filter_opts).unwrap();
+        let filtered = filter_projects(projects, &filter_opts)?;
         // The project with name=None is treated as "" and should not match "named*"
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].name.as_deref(), Some("named"));
+        Ok(())
     }
 }

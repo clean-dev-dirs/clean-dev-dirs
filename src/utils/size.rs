@@ -159,60 +159,67 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_size_zero() {
-        assert_eq!(parse_size("0").unwrap(), 0);
+    fn test_parse_size_zero() -> anyhow::Result<()> {
+        assert_eq!(parse_size("0")?, 0);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_size_plain_bytes() {
-        assert_eq!(parse_size("1000").unwrap(), 1000);
-        assert_eq!(parse_size("12345").unwrap(), 12345);
-        assert_eq!(parse_size("1").unwrap(), 1);
+    fn test_parse_size_plain_bytes() -> anyhow::Result<()> {
+        assert_eq!(parse_size("1000")?, 1000);
+        assert_eq!(parse_size("12345")?, 12345);
+        assert_eq!(parse_size("1")?, 1);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_size_decimal_units() {
-        assert_eq!(parse_size("1KB").unwrap(), 1_000);
-        assert_eq!(parse_size("100KB").unwrap(), 100_000);
-        assert_eq!(parse_size("1MB").unwrap(), 1_000_000);
-        assert_eq!(parse_size("5MB").unwrap(), 5_000_000);
-        assert_eq!(parse_size("1GB").unwrap(), 1_000_000_000);
-        assert_eq!(parse_size("2GB").unwrap(), 2_000_000_000);
+    fn test_parse_size_decimal_units() -> anyhow::Result<()> {
+        assert_eq!(parse_size("1KB")?, 1_000);
+        assert_eq!(parse_size("100KB")?, 100_000);
+        assert_eq!(parse_size("1MB")?, 1_000_000);
+        assert_eq!(parse_size("5MB")?, 5_000_000);
+        assert_eq!(parse_size("1GB")?, 1_000_000_000);
+        assert_eq!(parse_size("2GB")?, 2_000_000_000);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_size_binary_units() {
-        assert_eq!(parse_size("1KiB").unwrap(), 1_024);
-        assert_eq!(parse_size("1MiB").unwrap(), 1_048_576);
-        assert_eq!(parse_size("1GiB").unwrap(), 1_073_741_824);
-        assert_eq!(parse_size("2KiB").unwrap(), 2_048);
-        assert_eq!(parse_size("10MiB").unwrap(), 10_485_760);
+    fn test_parse_size_binary_units() -> anyhow::Result<()> {
+        assert_eq!(parse_size("1KiB")?, 1_024);
+        assert_eq!(parse_size("1MiB")?, 1_048_576);
+        assert_eq!(parse_size("1GiB")?, 1_073_741_824);
+        assert_eq!(parse_size("2KiB")?, 2_048);
+        assert_eq!(parse_size("10MiB")?, 10_485_760);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_size_case_insensitive() {
-        assert_eq!(parse_size("1kb").unwrap(), 1_000);
-        assert_eq!(parse_size("1Kb").unwrap(), 1_000);
-        assert_eq!(parse_size("1kB").unwrap(), 1_000);
-        assert_eq!(parse_size("1mb").unwrap(), 1_000_000);
-        assert_eq!(parse_size("1mib").unwrap(), 1_048_576);
-        assert_eq!(parse_size("1gib").unwrap(), 1_073_741_824);
+    fn test_parse_size_case_insensitive() -> anyhow::Result<()> {
+        assert_eq!(parse_size("1kb")?, 1_000);
+        assert_eq!(parse_size("1Kb")?, 1_000);
+        assert_eq!(parse_size("1kB")?, 1_000);
+        assert_eq!(parse_size("1mb")?, 1_000_000);
+        assert_eq!(parse_size("1mib")?, 1_048_576);
+        assert_eq!(parse_size("1gib")?, 1_073_741_824);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_size_decimal_values() {
-        assert_eq!(parse_size("1.5KB").unwrap(), 1_500);
-        assert_eq!(parse_size("2.5MB").unwrap(), 2_500_000);
-        assert_eq!(parse_size("1.5MiB").unwrap(), 1_572_864); // 1.5 * 1048576
-        assert_eq!(parse_size("0.5GB").unwrap(), 500_000_000);
-        assert_eq!(parse_size("0.1KB").unwrap(), 100);
+    fn test_parse_size_decimal_values() -> anyhow::Result<()> {
+        assert_eq!(parse_size("1.5KB")?, 1_500);
+        assert_eq!(parse_size("2.5MB")?, 2_500_000);
+        assert_eq!(parse_size("1.5MiB")?, 1_572_864); // 1.5 * 1048576
+        assert_eq!(parse_size("0.5GB")?, 500_000_000);
+        assert_eq!(parse_size("0.1KB")?, 100);
+        Ok(())
     }
 
     #[test]
-    fn test_parse_size_complex_decimals() {
-        assert_eq!(parse_size("1.25MB").unwrap(), 1_250_000);
-        assert_eq!(parse_size("3.14159KB").unwrap(), 3_141); // Truncated due to precision
-        assert_eq!(parse_size("2.75GiB").unwrap(), 2_952_790_016); // 2.75 * 1073741824
+    fn test_parse_size_complex_decimals() -> anyhow::Result<()> {
+        assert_eq!(parse_size("1.25MB")?, 1_250_000);
+        assert_eq!(parse_size("3.14159KB")?, 3_141); // Truncated due to precision
+        assert_eq!(parse_size("2.75GiB")?, 2_952_790_016); // 2.75 * 1073741824
+        Ok(())
     }
 
     #[test]
@@ -226,12 +233,12 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_size_unit_order() {
-        // Test that longer units are matched first (GiB before GB, MiB before MB, etc.)
-        assert_eq!(parse_size("1GiB").unwrap(), 1_073_741_824);
-        assert_eq!(parse_size("1GB").unwrap(), 1_000_000_000);
-        assert_eq!(parse_size("1MiB").unwrap(), 1_048_576);
-        assert_eq!(parse_size("1MB").unwrap(), 1_000_000);
+    fn test_parse_size_unit_order() -> anyhow::Result<()> {
+        assert_eq!(parse_size("1GiB")?, 1_073_741_824);
+        assert_eq!(parse_size("1GB")?, 1_000_000_000);
+        assert_eq!(parse_size("1MiB")?, 1_048_576);
+        assert_eq!(parse_size("1MB")?, 1_000_000);
+        Ok(())
     }
 
     #[test]
@@ -246,36 +253,39 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_fractional_part() {
-        assert_eq!(parse_fractional_part("5").unwrap(), 500_000_000);
-        assert_eq!(parse_fractional_part("25").unwrap(), 250_000_000);
-        assert_eq!(parse_fractional_part("125").unwrap(), 125_000_000);
-        assert_eq!(parse_fractional_part("999999999").unwrap(), 999_999_999);
+    fn test_parse_fractional_part() -> anyhow::Result<()> {
+        assert_eq!(parse_fractional_part("5")?, 500_000_000);
+        assert_eq!(parse_fractional_part("25")?, 250_000_000);
+        assert_eq!(parse_fractional_part("125")?, 125_000_000);
+        assert_eq!(parse_fractional_part("999999999")?, 999_999_999);
 
         // Too many decimal places
         assert!(parse_fractional_part("1234567890").is_err());
+        Ok(())
     }
 
     #[test]
-    fn test_multiply_with_overflow_check() {
-        assert_eq!(multiply_with_overflow_check(100, 200).unwrap(), 20_000);
-        assert_eq!(multiply_with_overflow_check(0, 999).unwrap(), 0);
-        assert_eq!(multiply_with_overflow_check(1, 1).unwrap(), 1);
+    fn test_multiply_with_overflow_check() -> anyhow::Result<()> {
+        assert_eq!(multiply_with_overflow_check(100, 200)?, 20_000);
+        assert_eq!(multiply_with_overflow_check(0, 999)?, 0);
+        assert_eq!(multiply_with_overflow_check(1, 1)?, 1);
 
         // Test overflow
         assert!(multiply_with_overflow_check(u64::MAX, 2).is_err());
         assert!(multiply_with_overflow_check(u64::MAX / 2 + 1, 2).is_err());
+        Ok(())
     }
 
     #[test]
-    fn test_add_with_overflow_check() {
-        assert_eq!(add_with_overflow_check(100, 200).unwrap(), 300);
-        assert_eq!(add_with_overflow_check(0, 999).unwrap(), 999);
-        assert_eq!(add_with_overflow_check(u64::MAX - 1, 1).unwrap(), u64::MAX);
+    fn test_add_with_overflow_check() -> anyhow::Result<()> {
+        assert_eq!(add_with_overflow_check(100, 200)?, 300);
+        assert_eq!(add_with_overflow_check(0, 999)?, 999);
+        assert_eq!(add_with_overflow_check(u64::MAX - 1, 1)?, u64::MAX);
 
         // Test overflow
         assert!(add_with_overflow_check(u64::MAX, 1).is_err());
         assert!(add_with_overflow_check(u64::MAX - 1, 2).is_err());
+        Ok(())
     }
 
     #[test]
@@ -288,43 +298,40 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_decimal_size() {
-        assert_eq!(parse_decimal_size("1.5", 1_000_000).unwrap(), 1_500_000);
-        assert_eq!(parse_decimal_size("2.25", 1_000).unwrap(), 2_250);
-        assert_eq!(
-            parse_decimal_size("0.5", 2_000_000_000).unwrap(),
-            1_000_000_000
-        );
+    fn test_parse_decimal_size() -> anyhow::Result<()> {
+        assert_eq!(parse_decimal_size("1.5", 1_000_000)?, 1_500_000);
+        assert_eq!(parse_decimal_size("2.25", 1_000)?, 2_250);
+        assert_eq!(parse_decimal_size("0.5", 2_000_000_000)?, 1_000_000_000);
 
         // Invalid formats
         assert!(parse_decimal_size("1.2.3", 1000).is_err());
         assert!(parse_decimal_size("invalid", 1000).is_err());
+        Ok(())
     }
 
     #[test]
-    fn test_parse_integer_size() {
-        assert_eq!(parse_integer_size("100", 1_000).unwrap(), 100_000);
-        assert_eq!(parse_integer_size("0", 999).unwrap(), 0);
-        assert_eq!(
-            parse_integer_size("1", 1_000_000_000).unwrap(),
-            1_000_000_000
-        );
+    fn test_parse_integer_size() -> anyhow::Result<()> {
+        assert_eq!(parse_integer_size("100", 1_000)?, 100_000);
+        assert_eq!(parse_integer_size("0", 999)?, 0);
+        assert_eq!(parse_integer_size("1", 1_000_000_000)?, 1_000_000_000);
 
         // Invalid format
         assert!(parse_integer_size("not_a_number", 1000).is_err());
+        Ok(())
     }
 
     #[test]
-    fn test_edge_cases() {
+    fn test_edge_cases() -> anyhow::Result<()> {
         // Very small decimal
-        assert_eq!(parse_size("0.001KB").unwrap(), 1);
+        assert_eq!(parse_size("0.001KB")?, 1);
 
         // Very large valid number
         let large_but_valid = (u64::MAX / 1_000_000_000).to_string() + "GB";
         assert!(parse_size(&large_but_valid).is_ok());
 
         // Zero with units
-        assert_eq!(parse_size("0KB").unwrap(), 0);
-        assert_eq!(parse_size("0.0MB").unwrap(), 0);
+        assert_eq!(parse_size("0KB")?, 0);
+        assert_eq!(parse_size("0.0MB")?, 0);
+        Ok(())
     }
 }
