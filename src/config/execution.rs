@@ -24,6 +24,11 @@ pub struct ExecutionOptions {
     /// Defaults to `true`. Set to `false` via the `--permanent` CLI flag or
     /// `use_trash = false` in the config file.
     pub use_trash: bool,
+
+    /// Whether to skip the confirmation prompt before deletion.
+    ///
+    /// Set via `--yes` / `-y`. CLI-only; not configurable via TOML.
+    pub yes: bool,
 }
 
 #[cfg(test)]
@@ -37,6 +42,7 @@ mod tests {
             interactive: false,
             keep_executables: false,
             use_trash: false,
+            yes: false,
         };
 
         assert!(exec_opts.dry_run);
@@ -52,6 +58,7 @@ mod tests {
             interactive: false,
             keep_executables: true,
             use_trash: true,
+            yes: false,
         };
         let cloned = original.clone();
 

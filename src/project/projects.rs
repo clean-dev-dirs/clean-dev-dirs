@@ -289,14 +289,14 @@ impl Projects {
     /// ```
     pub fn print_summary(&self, total_size: u64) {
         let type_entries: &[(ProjectType, &str, &str)] = &[
-            (ProjectType::Rust, "🦀", "Rust"),
-            (ProjectType::Node, "📦", "Node.js"),
-            (ProjectType::Python, "🐍", "Python"),
-            (ProjectType::Go, "🐹", "Go"),
-            (ProjectType::Java, "☕", "Java/Kotlin"),
-            (ProjectType::Cpp, "⚙️", "C/C++"),
-            (ProjectType::Swift, "🐦", "Swift"),
-            (ProjectType::DotNet, "🔷", ".NET/C#"),
+            (ProjectType::Rust, "[rs]", "Rust"),
+            (ProjectType::Node, "[js]", "Node.js"),
+            (ProjectType::Python, "[py]", "Python"),
+            (ProjectType::Go, "[go]", "Go"),
+            (ProjectType::Java, "[java]", "Java/Kotlin"),
+            (ProjectType::Cpp, "[cpp]", "C/C++"),
+            (ProjectType::Swift, "[swift]", "Swift"),
+            (ProjectType::DotNet, "[net]", ".NET/C#"),
         ];
 
         for (kind, icon, label) in type_entries {
@@ -318,7 +318,7 @@ impl Projects {
         }
 
         println!(
-            "  💾 Total reclaimable space: {}",
+            "  Total reclaimable space: {}",
             format_size(total_size, DECIMAL).bright_green().bold()
         );
     }
@@ -327,21 +327,21 @@ impl Projects {
 /// Return the icon for a given project type.
 const fn icon_for_project_type(kind: &ProjectType) -> &'static str {
     match kind {
-        ProjectType::Rust => "🦀",
-        ProjectType::Node => "📦",
-        ProjectType::Python => "🐍",
-        ProjectType::Go => "🐹",
-        ProjectType::Java => "☕",
-        ProjectType::Cpp => "⚙️",
-        ProjectType::Swift => "🐦",
-        ProjectType::DotNet => "🔷",
-        ProjectType::Ruby => "💎",
-        ProjectType::Elixir => "💧",
-        ProjectType::Deno => "🦕",
-        ProjectType::Php => "🐘",
+        ProjectType::Rust => "[rs]",
+        ProjectType::Node => "[js]",
+        ProjectType::Python => "[py]",
+        ProjectType::Go => "[go]",
+        ProjectType::Java => "[java]",
+        ProjectType::Cpp => "[cpp]",
+        ProjectType::Swift => "[swift]",
+        ProjectType::DotNet => "[net]",
+        ProjectType::Ruby => "[rb]",
+        ProjectType::Elixir => "[ex]",
+        ProjectType::Deno => "[deno]",
+        ProjectType::Php => "[php]",
         ProjectType::Haskell => "λ",
-        ProjectType::Dart => "🎯",
-        ProjectType::Zig => "⚡",
-        ProjectType::Scala => "🔴",
+        ProjectType::Dart => "[dart]",
+        ProjectType::Zig => "[zig]",
+        ProjectType::Scala => "[scala]",
     }
 }

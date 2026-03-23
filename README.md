@@ -277,7 +277,7 @@ clean-dev-dirs --json --dry-run | jq '.projects[] | select(.build_artifacts_size
 clean-dev-dirs --json --dry-run -p rust | jq '.summary.total_size_formatted'
 ```
 
-When `--json` is active, all human-readable output (colors, progress bars, emojis) is suppressed and a single JSON document is printed to stdout. `--json` is incompatible with `--interactive` and implies `--yes` behavior (no confirmation prompts).
+When `--json` is active, all human-readable output (colors, progress bars) is suppressed and a single JSON document is printed to stdout. `--json` is incompatible with `--interactive` and implies `--yes` behavior (no confirmation prompts).
 
 <details>
 <summary>Example JSON output (dry run)</summary>
@@ -689,50 +689,51 @@ The tool automatically detects development projects by looking for characteristi
 ## Safety Features
 
 - **Trash by default**: Directories are moved to the system trash for recoverable cleanups; use `--permanent` to override
+- **Confirmation prompt**: A "Clean N projects?" prompt is shown before any deletion; use `--yes`/`-y` to skip it
 - **Dry-run mode**: Preview all operations before execution with `--dry-run`
-- **Interactive confirmation**: Manually select projects to clean with `--interactive`
+- **Interactive selection**: Manually choose which projects to clean with `--interactive`
 - **Intelligent filtering**: Skip recently modified or small projects with `--keep-days` and `--keep-size`
 - **Error handling**: Graceful handling of permission errors and inaccessible files
 - **Read-only scanning**: Never modifies files during the scanning phase
-- **Clear output**: Color-coded, human-readable output with project types and sizes
+- **Clear output**: Color-coded, human-readable output with ASCII project-type tags and sizes
 
 ## Output
 
-The tool provides beautiful, colored output including:
+The tool provides colored output including:
 
-| Icon | Project Type |
-|------|--------------|
-| 🦀 | Rust projects |
-| 📦 | Node.js projects |
-| 🐍 | Python projects |
-| 🐹 | Go projects |
-| ☕ | Java/Kotlin projects |
-| ⚙️ | C/C++ projects |
-| 🐦 | Swift projects |
-| 🔷 | .NET/C# projects |
-| 💎 | Ruby projects |
-| 💧 | Elixir projects |
-| 🦕 | Deno projects |
-| 🐘 | PHP projects |
-| λ | Haskell projects |
-| 🎯 | Dart/Flutter projects |
-| ⚡ | Zig projects |
-| 🔴 | Scala projects |
+| Tag | Project Type |
+|-----|--------------|
+| `[rs]` | Rust projects |
+| `[js]` | Node.js projects |
+| `[py]` | Python projects |
+| `[go]` | Go projects |
+| `[java]` | Java/Kotlin projects |
+| `[cpp]` | C/C++ projects |
+| `[swift]` | Swift projects |
+| `[net]` | .NET/C# projects |
+| `[rb]` | Ruby projects |
+| `[ex]` | Elixir projects |
+| `[deno]` | Deno projects |
+| `[php]` | PHP projects |
+| `λ` | Haskell projects |
+| `[dart]` | Dart/Flutter projects |
+| `[zig]` | Zig projects |
+| `[scala]` | Scala projects |
 
 ### Sample Output
 
 ```
 Found 15 projects
 
-📊 Found projects:
+Found projects:
 
-🦀 my-rust-app (/home/user/projects/rust-app)
+[rs] my-rust-app (/home/user/projects/rust-app)
    Size: 2.3 GB
 
-📦 web-frontend (/home/user/projects/web-app)
+[js] web-frontend (/home/user/projects/web-app)
    Size: 856 MB
 
-🐍 ml-project (/home/user/projects/python-ml)
+[py] ml-project (/home/user/projects/python-ml)
    Size: 1.2 GB
 
 Total space that can be reclaimed: 4.4 GB
@@ -761,7 +762,7 @@ pub enum ProjectType {
 }
 ```
 
-Don't forget to update the `Display` implementation to include an appropriate emoji and name.
+Don't forget to update the `Display` implementation to include an appropriate ASCII tag and name.
 
 #### 2. **Add CLI Filter Option**
 

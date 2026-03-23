@@ -324,6 +324,7 @@ impl Cli {
             keep_executables: self.execution.keep_executables
                 || config.execution.keep_executables.unwrap_or(false),
             use_trash: !self.execution.permanent && config.execution.use_trash.unwrap_or(true),
+            yes: self.execution.yes,
         }
     }
 
