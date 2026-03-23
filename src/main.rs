@@ -104,7 +104,7 @@ fn inner_main() -> Result<()> {
     }
 
     if projects.is_empty() {
-        return print_empty_result(json_mode, "✨ No development directories found!");
+        return print_empty_result(json_mode, "No development directories found!");
     }
 
     let sort_opts = args.sort_options(&file_config);
@@ -112,14 +112,14 @@ fn inner_main() -> Result<()> {
     sort_projects(&mut filtered_projects, &sort_opts);
 
     if filtered_projects.is_empty() {
-        return print_empty_result(json_mode, "✨ No directories match the specified criteria!");
+        return print_empty_result(json_mode, "No directories match the specified criteria!");
     }
 
     let total_size: u64 = filtered_projects.iter().map(Project::total_size).sum();
     let projects: Projects = filtered_projects.into();
 
     if !json_mode {
-        println!("\n{}", "📊 Found projects:".bold());
+        println!("\n{}", "Found projects:".bold());
         projects.print_summary(total_size);
     }
 
@@ -129,6 +129,10 @@ fn inner_main() -> Result<()> {
 
     if execution_options.dry_run {
         return print_dry_run(&projects, json_mode);
+    }
+
+    if !confirm_cleanup(projects.len(), total_size, execution_options.yes, json_mode)? {
+        return Ok(());
     }
 
     run_cleanup(
@@ -369,7 +373,7 @@ fn resolve_keep_executables(
     if opts.interactive {
         let selected = projects.interactive_selection()?;
         if selected.is_empty() {
-            println!("{}", "✨ No projects selected for cleaning!".green());
+            println!("{}", "No projects selected for cleaning!".green());
             return Ok(None);
         }
 
@@ -383,6 +387,22 @@ fn resolve_keep_executables(
     Ok(Some(keep))
 }
 
+/// Ask the user to confirm before proceeding with deletion.
+///
+/// Skipped when `--yes`/`-y` was passed or `--json` mode is active.
+/// Returns `Ok(true)` to proceed, `Ok(false)` to abort.
+fn confirm_cleanup(count: usize, total_size: u64, yes: bool, json_mode: bool) -> Result<bool> {
+    if yes || json_mode {
+        return Ok(true);
+    }
+    let size_str = format_size(total_size, DECIMAL);
+    let plural = if count == 1 { "" } else { "s" };
+    let confirmed = Confirm::new(&format!("Clean {count} project{plural} ({size_str})?"))
+        .with_default(false)
+        .prompt()?;
+    Ok(confirmed)
+}
+
 /// Print dry-run results in JSON or human-readable format.
 fn print_dry_run(projects: &Projects, json_mode: bool) -> Result<()> {
     if json_mode {
@@ -392,7 +412,7 @@ fn print_dry_run(projects: &Projects, json_mode: bool) -> Result<()> {
         let size = projects.get_total_size();
         println!(
             "\n{} {}",
-            "🧪 Dry run complete!".yellow(),
+            "[dry-run] Complete.".yellow(),
             format!("Would free up {}", format_size(size, DECIMAL)).bright_white()
         );
     }

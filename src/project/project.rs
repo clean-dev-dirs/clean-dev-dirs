@@ -237,31 +237,31 @@ impl Display for Project {
     ///
     /// - `🦀 my-rust-project (/path/to/project)`
     /// - `📦 my-node-app (/path/to/app)`
-    /// - `🐍 my-python-project (/path/to/project)`
-    /// - `🐹 my-go-project (/path/to/project)`
-    /// - `☕ my-java-project (/path/to/project)`
-    /// - `⚙️ my-cpp-project (/path/to/project)`
-    /// - `🐦 my-swift-project (/path/to/project)`
-    /// - `🔷 my-dotnet-project (/path/to/project)`
-    /// - `🦀 /path/to/unnamed/project` (when no name is available)
+    /// - `[py] my-python-project (/path/to/project)`
+    /// - `[go] my-go-project (/path/to/project)`
+    /// - `[java] my-java-project (/path/to/project)`
+    /// - `[cpp] my-cpp-project (/path/to/project)`
+    /// - `[swift] my-swift-project (/path/to/project)`
+    /// - `[net] my-dotnet-project (/path/to/project)`
+    /// - `[rs] /path/to/unnamed/project` (when no name is available)
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
         let icon = match self.kind {
-            ProjectType::Rust => "🦀",
-            ProjectType::Node => "📦",
-            ProjectType::Python => "🐍",
-            ProjectType::Go => "🐹",
-            ProjectType::Java => "☕",
-            ProjectType::Cpp => "⚙️",
-            ProjectType::Swift => "🐦",
-            ProjectType::DotNet => "🔷",
-            ProjectType::Ruby => "💎",
-            ProjectType::Elixir => "💧",
-            ProjectType::Deno => "🦕",
-            ProjectType::Php => "🐘",
+            ProjectType::Rust => "[rs]",
+            ProjectType::Node => "[js]",
+            ProjectType::Python => "[py]",
+            ProjectType::Go => "[go]",
+            ProjectType::Java => "[java]",
+            ProjectType::Cpp => "[cpp]",
+            ProjectType::Swift => "[swift]",
+            ProjectType::DotNet => "[net]",
+            ProjectType::Ruby => "[rb]",
+            ProjectType::Elixir => "[ex]",
+            ProjectType::Deno => "[deno]",
+            ProjectType::Php => "[php]",
             ProjectType::Haskell => "λ",
-            ProjectType::Dart => "🎯",
-            ProjectType::Zig => "⚡",
-            ProjectType::Scala => "🔴",
+            ProjectType::Dart => "[dart]",
+            ProjectType::Zig => "[zig]",
+            ProjectType::Scala => "[scala]",
         };
 
         if let Some(name) = &self.name {
@@ -375,7 +375,7 @@ mod tests {
             Some("my-rust-app".to_string()),
         );
 
-        let expected = "🦀 my-rust-app (/path/to/rust-project)";
+        let expected = "[rs] my-rust-app (/path/to/rust-project)";
         assert_eq!(format!("{rust_project}"), expected);
 
         let node_project = create_test_project(
@@ -386,7 +386,7 @@ mod tests {
             Some("my-node-app".to_string()),
         );
 
-        let expected = "📦 my-node-app (/path/to/node-project)";
+        let expected = "[js] my-node-app (/path/to/node-project)";
         assert_eq!(format!("{node_project}"), expected);
 
         let python_project = create_test_project(
@@ -397,7 +397,7 @@ mod tests {
             Some("my-python-app".to_string()),
         );
 
-        let expected = "🐍 my-python-app (/path/to/python-project)";
+        let expected = "[py] my-python-app (/path/to/python-project)";
         assert_eq!(format!("{python_project}"), expected);
 
         let go_project = create_test_project(
@@ -408,7 +408,7 @@ mod tests {
             Some("my-go-app".to_string()),
         );
 
-        let expected = "🐹 my-go-app (/path/to/go-project)";
+        let expected = "[go] my-go-app (/path/to/go-project)";
         assert_eq!(format!("{go_project}"), expected);
 
         let java_project = create_test_project(
@@ -419,7 +419,7 @@ mod tests {
             Some("my-java-app".to_string()),
         );
 
-        let expected = "☕ my-java-app (/path/to/java-project)";
+        let expected = "[java] my-java-app (/path/to/java-project)";
         assert_eq!(format!("{java_project}"), expected);
 
         let cpp_project = create_test_project(
@@ -430,7 +430,7 @@ mod tests {
             Some("my-cpp-app".to_string()),
         );
 
-        let expected = "⚙\u{fe0f} my-cpp-app (/path/to/cpp-project)";
+        let expected = "[cpp] my-cpp-app (/path/to/cpp-project)";
         assert_eq!(format!("{cpp_project}"), expected);
 
         let swift_project = create_test_project(
@@ -441,7 +441,7 @@ mod tests {
             Some("my-swift-app".to_string()),
         );
 
-        let expected = "🐦 my-swift-app (/path/to/swift-project)";
+        let expected = "[swift] my-swift-app (/path/to/swift-project)";
         assert_eq!(format!("{swift_project}"), expected);
 
         let dotnet_project = create_test_project(
@@ -452,7 +452,7 @@ mod tests {
             Some("my-dotnet-app".to_string()),
         );
 
-        let expected = "🔷 my-dotnet-app (/path/to/dotnet-project)";
+        let expected = "[net] my-dotnet-app (/path/to/dotnet-project)";
         assert_eq!(format!("{dotnet_project}"), expected);
 
         let ruby_project = create_test_project(
@@ -463,7 +463,7 @@ mod tests {
             Some("my-ruby-gem".to_string()),
         );
 
-        let expected = "💎 my-ruby-gem (/path/to/ruby-project)";
+        let expected = "[rb] my-ruby-gem (/path/to/ruby-project)";
         assert_eq!(format!("{ruby_project}"), expected);
 
         let elixir_project = create_test_project(
@@ -474,7 +474,7 @@ mod tests {
             Some("my_elixir_app".to_string()),
         );
 
-        let expected = "💧 my_elixir_app (/path/to/elixir-project)";
+        let expected = "[ex] my_elixir_app (/path/to/elixir-project)";
         assert_eq!(format!("{elixir_project}"), expected);
 
         let deno_project = create_test_project(
@@ -485,7 +485,7 @@ mod tests {
             Some("my-deno-app".to_string()),
         );
 
-        let expected = "🦕 my-deno-app (/path/to/deno-project)";
+        let expected = "[deno] my-deno-app (/path/to/deno-project)";
         assert_eq!(format!("{deno_project}"), expected);
     }
 
@@ -499,7 +499,7 @@ mod tests {
             None,
         );
 
-        let expected = "🦀 /path/to/unnamed-project";
+        let expected = "[rs] /path/to/unnamed-project";
         assert_eq!(format!("{rust_project}"), expected);
 
         let node_project = create_test_project(
@@ -510,7 +510,7 @@ mod tests {
             None,
         );
 
-        let expected = "📦 /some/other/path";
+        let expected = "[js] /some/other/path";
         assert_eq!(format!("{node_project}"), expected);
     }
 
@@ -553,7 +553,7 @@ mod tests {
         );
 
         assert_eq!(project.total_size(), 0);
-        assert_eq!(format!("{project}"), "🐍 empty-project (/empty/project)");
+        assert_eq!(format!("{project}"), "[py] empty-project (/empty/project)");
     }
 
     #[test]

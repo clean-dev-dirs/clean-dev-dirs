@@ -134,8 +134,8 @@ impl Cleaner {
             ProgressBar::hidden()
         } else {
             let action = match removal_strategy {
-                RemovalStrategy::Permanent => "🧹 Starting cleanup...",
-                RemovalStrategy::Trash => "🗑️  Moving to trash...",
+                RemovalStrategy::Permanent => "Starting cleanup...",
+                RemovalStrategy::Trash => "Moving to trash...",
             };
             println!("\n{}", action.cyan());
 
@@ -190,8 +190,8 @@ impl Cleaner {
         });
 
         let finish_msg = match removal_strategy {
-            RemovalStrategy::Permanent => "✅ Cleanup complete",
-            RemovalStrategy::Trash => "✅ Moved to trash",
+            RemovalStrategy::Permanent => "[OK] Cleanup complete",
+            RemovalStrategy::Trash => "[OK] Moved to trash",
         };
         progress.finish_with_message(finish_msg);
 
@@ -219,27 +219,27 @@ impl Cleaner {
     /// This is called from `main` when `--json` is **not** active.
     pub fn print_summary(result: &CleanResult) {
         if !result.errors.is_empty() {
-            println!("\n{}", "⚠️  Some errors occurred during cleanup:".yellow());
+            println!("\n{}", "[!] Some errors occurred during cleanup:".yellow());
             for error in &result.errors {
                 eprintln!("  {}", error.red());
             }
         }
 
-        println!("\n{}", "📊 Cleanup Summary:".bold());
+        println!("\n{}", "Cleanup Summary:".bold());
         println!(
-            "  ✅ Successfully cleaned: {} projects",
+            "  [OK] Successfully cleaned: {} projects",
             result.success_count.to_string().green()
         );
 
         if !result.errors.is_empty() {
             println!(
-                "  ❌ Failed to clean: {} projects",
+                "  [FAIL] Failed to clean: {} projects",
                 result.errors.len().to_string().red()
             );
         }
 
         println!(
-            "  💾 Total space freed: {}",
+            "  Total space freed: {}",
             format_size(result.total_freed, DECIMAL)
                 .bright_green()
                 .bold()
@@ -248,7 +248,7 @@ impl Cleaner {
         if result.total_freed != result.estimated_size {
             let difference = result.estimated_size.abs_diff(result.total_freed);
             println!(
-                "  📋 Difference from estimate: {}",
+                "  Difference from estimate: {}",
                 format_size(difference, DECIMAL).yellow()
             );
         }

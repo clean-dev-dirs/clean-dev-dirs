@@ -163,7 +163,7 @@ impl Scanner {
             })
             .collect();
 
-        progress.finish_with_message("✅ Directory scan complete");
+        progress.finish_with_message("[OK] Directory scan complete");
 
         // Process projects in parallel to calculate sizes
         let projects_with_sizes: Vec<_> = potential_projects
