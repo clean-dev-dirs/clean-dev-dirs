@@ -123,7 +123,9 @@ fn inner_main() -> Result<()> {
         projects.print_summary(total_size);
     }
 
-    let Some(keep_executables) = resolve_keep_executables(&projects, &execution_options)? else {
+    let Some((projects, keep_executables)) =
+        resolve_keep_executables(projects, &execution_options)?
+    else {
         return Ok(());
     };
 
@@ -131,7 +133,13 @@ fn inner_main() -> Result<()> {
         return print_dry_run(&projects, json_mode);
     }
 
-    if !confirm_cleanup(projects.len(), total_size, execution_options.yes, json_mode)? {
+    let confirm_size = projects.get_total_size();
+    if !confirm_cleanup(
+        projects.len(),
+        confirm_size,
+        execution_options.yes,
+        json_mode,
+    )? {
         return Ok(());
     }
 
@@ -362,12 +370,14 @@ fn print_empty_result(json_mode: bool, message: &str) -> Result<()> {
 
 /// Handle interactive project selection and the keep-executables prompt.
 ///
-/// Returns `Ok(Some(keep))` to continue with the resolved flag, or
-/// `Ok(None)` when the user selected zero projects (caller should exit).
+/// Returns `Ok(Some((projects, keep)))` where `projects` is the user-selected
+/// subset (interactive mode) or the full set (non-interactive), and `keep` is
+/// the resolved keep-executables flag. Returns `Ok(None)` when the user
+/// selected zero projects (caller should exit).
 fn resolve_keep_executables(
-    projects: &Projects,
+    projects: Projects,
     opts: &clean_dev_dirs::ExecutionOptions,
-) -> Result<Option<bool>> {
+) -> Result<Option<(Projects, bool)>> {
     let mut keep = opts.keep_executables;
 
     if opts.interactive {
@@ -382,9 +392,11 @@ fn resolve_keep_executables(
                 .with_default(false)
                 .prompt()?;
         }
+
+        return Ok(Some((Projects::from(selected), keep)));
     }
 
-    Ok(Some(keep))
+    Ok(Some((projects, keep)))
 }
 
 /// Ask the user to confirm before proceeding with deletion.

@@ -198,7 +198,7 @@ pub fn sort_projects(projects: &mut Vec<Project>, sort_opts: &SortOptions) {
             });
         }
         SortCriteria::Type => {
-            projects.sort_by(|a, b| type_order(&a.kind).cmp(&type_order(&b.kind)));
+            projects.sort_by_key(|a| type_order(&a.kind));
         }
     }
 
@@ -225,7 +225,7 @@ fn sort_by_age(projects: &mut Vec<Project>) {
         })
         .collect();
 
-    decorated.sort_by(|a, b| a.1.cmp(&b.1));
+    decorated.sort_by_key(|a| a.1);
 
     projects.extend(decorated.into_iter().map(|(p, _)| p));
 }
