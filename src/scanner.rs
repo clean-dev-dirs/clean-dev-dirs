@@ -479,8 +479,7 @@ impl Scanner {
     /// Return true if the given `Cargo.toml` declares a `[workspace]` section.
     fn is_cargo_workspace_root(cargo_toml: &Path) -> bool {
         fs::read_to_string(cargo_toml)
-            .map(|content| content.lines().any(|line| line.trim() == "[workspace]"))
-            .unwrap_or(false)
+            .is_ok_and(|content| content.lines().any(|line| line.trim() == "[workspace]"))
     }
 
     /// Return true if `path` is inside a Rust workspace (an ancestor directory

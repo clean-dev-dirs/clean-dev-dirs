@@ -7,7 +7,7 @@
 use anyhow::Result;
 use colored::Colorize;
 use humansize::{DECIMAL, format_size};
-use inquire::MultiSelect;
+use inquire::{MultiSelect, list_option::ListOption};
 use rayon::prelude::*;
 
 use crate::project::ProjectType;
@@ -183,6 +183,12 @@ impl Projects {
 
         let selections = MultiSelect::new("Select projects to clean:", items)
             .with_default(&defaults)
+            .with_formatter(&|opts: &[ListOption<&String>]| {
+                opts.iter()
+                    .map(|o| o.value.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            })
             .prompt()?;
 
         Ok(selections
