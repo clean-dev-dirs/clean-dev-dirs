@@ -16,9 +16,9 @@ use std::{
 
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
+use jwalk::{Parallelism, WalkDir};
 use rayon::prelude::*;
 use serde_json::{Value, from_str};
-use walkdir::{DirEntry, WalkDir};
 
 use crate::{
     config::{ProjectFilter, ScanOptions},
@@ -141,20 +141,44 @@ impl Scanner {
         let progress_clone = progress.clone();
         let count_clone = Arc::clone(&found_count);
 
-        // Find all potential project directories
-        let walker = self.scan_options.max_depth.map_or_else(
-            || WalkDir::new(root),
-            |depth| WalkDir::new(root).max_depth(depth),
+        // Walk the tree in parallel with jwalk (read_dir runs across the rayon
+        // pool) instead of walkdir's single-threaded walk. The walk is the
+        // dominant cost for this tool, which stat()s large numbers of inodes.
+        let mut walker = WalkDir::new(root).skip_hidden(false).process_read_dir(
+            |_depth, _path, _state, children| {
+                // Prune: never descend into node_modules. Nothing inside a
+                // node_modules tree is ever a project candidate (see
+                // `should_scan_entry`), so skipping descent is
+                // behaviour-preserving and avoids stat-ing the deepest, largest
+                // part of most JavaScript projects.
+                for child in children.iter_mut().flatten() {
+                    if child.file_type.is_dir()
+                        && child.file_name == *std::ffi::OsStr::new("node_modules")
+                    {
+                        child.read_children_path = None;
+                    }
+                }
+            },
         );
+
+        // jwalk's default RayonDefaultPool can stall when the global pool only
+        // has a single thread; honour `--threads 1` with a serial walk instead.
+        if self.scan_options.threads == 1 {
+            walker = walker.parallelism(Parallelism::Serial);
+        }
+        if let Some(depth) = self.scan_options.max_depth {
+            walker = walker.max_depth(depth);
+        }
 
         let potential_projects: Vec<_> = walker
             .into_iter()
             .filter_map(Result::ok)
-            .filter(|entry| self.should_scan_entry(entry))
+            .map(|entry| (entry.path(), entry.file_type().is_dir()))
+            .filter(|(path, _)| self.should_scan_entry(path))
             .collect::<Vec<_>>()
             .into_par_iter()
-            .filter_map(|entry| {
-                let result = self.detect_project(&entry, &errors);
+            .filter_map(|(path, is_dir)| {
+                let result = self.detect_project(&path, is_dir, &errors);
                 if result.is_some() {
                     let n = count_clone.fetch_add(1, Ordering::Relaxed) + 1;
                     progress_clone.set_message(format!("Scanning... {n} found"));
@@ -334,12 +358,11 @@ impl Scanner {
     /// - **Zig projects**: Presence of `build.zig` with `zig-cache/` or `zig-out/`
     fn detect_project(
         &self,
-        entry: &DirEntry,
+        path: &Path,
+        is_dir: bool,
         errors: &Arc<Mutex<Vec<String>>>,
     ) -> Option<Project> {
-        let path = entry.path();
-
-        if !entry.file_type().is_dir() {
+        if !is_dir {
             return None;
         }
 
@@ -672,9 +695,7 @@ impl Scanner {
     /// - Python coverage files
     /// - Node.js modules (already handled above but added for completeness)
     /// - .NET `obj/` directory
-    fn should_scan_entry(&self, entry: &DirEntry) -> bool {
-        let path = entry.path();
-
+    fn should_scan_entry(&self, path: &Path) -> bool {
         // Early return if path is in skip list
         if self.is_path_in_skip_list(path) {
             return false;
