@@ -861,7 +861,8 @@ Built with excellent open-source libraries:
 - [Colored](https://crates.io/crates/colored) - Beautiful colored terminal output
 - [Indicatif](https://crates.io/crates/indicatif) - Progress bars and spinners
 - [Inquire](https://crates.io/crates/inquire) - Interactive prompts and selection
-- [WalkDir](https://crates.io/crates/walkdir) - Recursive directory iteration
+- [jwalk](https://crates.io/crates/jwalk) - Parallel recursive directory traversal
+- [WalkDir](https://crates.io/crates/walkdir) - Recursive directory iteration (used for directory size calculation)
 - [Humansize](https://crates.io/crates/humansize) - Human-readable file sizes
 - [Serde](https://crates.io/crates/serde) + [serde_json](https://crates.io/crates/serde_json) + [TOML](https://crates.io/crates/toml) - Serialization, JSON output, and configuration file parsing
 - [dirs](https://crates.io/crates/dirs) - Cross-platform config directory resolution
