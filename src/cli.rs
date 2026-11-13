@@ -459,7 +459,7 @@ mod tests {
         let scan_opts = args.scan_options(&config);
         assert!(!scan_opts.verbose);
         assert_eq!(scan_opts.threads, 0);
-        assert!(scan_opts.skip.is_empty());
+        assert_eq!(scan_opts.skip, Vec::<std::path::PathBuf>::new());
 
         let filter_opts = args.filter_options(&config);
         assert_eq!(filter_opts.keep_size, "0");
