@@ -1,7 +1,7 @@
 # The CI on Forgejo (git.tomplanche.com). Forgejo reads .forgejo/workflows and
 # ignores .github/workflows, so the GitHub workflows (macOS, Windows, releases,
-# Homebrew, SonarQube analysis) do not run here. The runner of Forgejo has
-# Linux only (`ubuntu-latest` is a Debian container, as root, without sudo).
+# Homebrew) do not run here. The runner of Forgejo has Linux only
+# (`ubuntu-latest` is a Debian container, as root, without sudo).
 #
 # This file runs the Linux jobs of .github/workflows/ci.yml: tests, Clippy and
 # formatting. Keep the commands in sync with ci.yml. The cache is
