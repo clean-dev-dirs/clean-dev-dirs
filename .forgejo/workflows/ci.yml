@@ -1,0 +1,82 @@
+# The CI on Forgejo (git.tomplanche.com). Forgejo reads .forgejo/workflows and
+# ignores .github/workflows, so the GitHub workflows (macOS, Windows, releases,
+# Homebrew, SonarQube analysis) do not run here. The runner of Forgejo has
+# Linux only (`ubuntu-latest` is a Debian container, as root, without sudo).
+#
+# This file runs the Linux jobs of .github/workflows/ci.yml: tests, Clippy and
+# formatting. Keep the commands in sync with ci.yml. The cache is
+# Swatinem/rust-cache, which works with the cache of the Forgejo runner. The
+# Test job also creates ~/.config, which the GitHub runners have.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry & build
+        uses: Swatinem/rust-cache@v2
+
+      # A test of src/config/file.rs needs ~/.config. The GitHub runners have
+      # it, the container of the Forgejo runner does not.
+      - name: Create ~/.config
+        run: mkdir -p ~/.config
+
+      - name: Build
+        run: cargo build --workspace --all-targets
+
+      - name: Run tests
+        run: cargo test --workspace --all-targets
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry & build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: >-
+          cargo clippy --workspace --release --all-targets --all-features --
+          --deny warnings -D warnings
+          -W clippy::correctness -W clippy::suspicious
+          -W clippy::complexity -W clippy::perf
+          -W clippy::style -W clippy::pedantic
+
+  fmt:
+    name: Formatting
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
