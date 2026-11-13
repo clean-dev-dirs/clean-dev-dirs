@@ -2,7 +2,10 @@ pre-commit:
   commands:
     - cargo fmt --all -- --check
     - cargo clippy --workspace --release --all-targets --all-features -- -D warnings
-    - cargo audit
+    # Git gives GIT_INDEX_FILE to the hooks. cargo audit updates its advisory
+    # database (a git repository) with it, and so writes the index of that
+    # database into the index of this repository.
+    - env -u GIT_INDEX_FILE cargo audit
     - cargo outdated
 
 pre-push:
