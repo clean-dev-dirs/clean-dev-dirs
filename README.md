@@ -12,9 +12,6 @@
 
 <p align="center">
   <a href="https://crates.io/crates/clean-dev-dirs"><img src="https://img.shields.io/crates/v/clean-dev-dirs.svg" alt="Crates.io Version"></a>
-  <a href="https://sonarcloud.io/summary/new_code?id=TomPlanche_clean-dev-dirs"><img src="https://sonarcloud.io/api/project_badges/measure?project=TomPlanche_clean-dev-dirs&metric=alert_status" alt="SonarCloud Status"></a>
-  <a href="https://sonarcloud.io/summary/new_code?id=TomPlanche_clean-dev-dirs"><img src="https://sonarcloud.io/api/project_badges/measure?project=TomPlanche_clean-dev-dirs&metric=sqale_rating" alt="SonarCloud SQALE Rating"></a>
-  <a href="https://sonarcloud.io/summary/new_code?id=TomPlanche_clean-dev-dirs"><img src="https://sonarcloud.io/api/project_badges/measure?project=TomPlanche_clean-dev-dirs&metric=security_rating" alt="SonarCloud Security Rating"></a>
   <a href="https://github.com/TomPlanche/clean-dev-dirs/blob/main/LICENSE"><img src="https://img.shields.io/crates/l/clean-dev-dirs" alt="License"></a>
 </p>
 

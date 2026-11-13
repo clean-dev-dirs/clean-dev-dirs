@@ -1475,13 +1475,12 @@ impl Scanner {
                 {
                     return Some(name.to_string());
                 }
-                Self::fallback_to_directory_name(config_path.parent()?)
             }
             Err(e) => {
                 self.log_file_error(config_path, &e, errors);
-                Self::fallback_to_directory_name(config_path.parent()?)
             }
         }
+        Self::fallback_to_directory_name(config_path.parent()?)
     }
 
     /// Detect a Ruby project in the specified directory.
@@ -1690,13 +1689,12 @@ impl Scanner {
                     let package = name.split('/').next_back().unwrap_or(name);
                     return Some(package.to_string());
                 }
-                Self::fallback_to_directory_name(composer_json.parent()?)
             }
             Err(e) => {
                 self.log_file_error(composer_json, &e, errors);
-                Self::fallback_to_directory_name(composer_json.parent()?)
             }
         }
+        Self::fallback_to_directory_name(composer_json.parent()?)
     }
 
     /// Detect a Haskell project in the specified directory.
