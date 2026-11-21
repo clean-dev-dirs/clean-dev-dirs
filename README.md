@@ -587,6 +587,17 @@ clean-dev-dirs --keep-size 2GiB     # 2 gibibytes
 clean-dev-dirs --keep-size 500000   # 500,000 bytes
 ```
 
+### How Sizes Are Measured
+
+The size of a build directory is the disk space that its deletion frees, not the apparent size of its files:
+
+- **Allocated blocks (Unix)**: each file counts the blocks that it uses on disk, like `du`. A sparse file counts only its allocated blocks. A small file counts a full block.
+- **Hard links inside the directory**: a file with several hard links in the same directory counts one time.
+- **Hard links to outside files**: a file that also has a hard link outside the directory counts zero times, because its data stays on disk after the deletion. On Linux, this is the case for a `node_modules` directory that pnpm fills from its store.
+- **Symbolic links**: the tool does not follow them.
+
+On Windows, the tool uses the apparent size of each file and does not detect hard links. On macOS, pnpm uses APFS clones by default, not hard links. The tool does not detect shared clone data yet, so the size of such a `node_modules` directory can be larger than the space that its deletion frees.
+
 ## Project Detection
 
 The tool automatically detects development projects by looking for characteristic files and directories:

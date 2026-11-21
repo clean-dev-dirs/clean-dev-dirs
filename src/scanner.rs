@@ -2630,6 +2630,12 @@ mod tests {
         create_file(&dir.join("sub/deep/file3.txt"), "!")?; // 1 byte
 
         let size = Scanner::calculate_build_dir_size(&dir);
+
+        // On Unix the size is the allocated blocks, so each small file
+        // uses at least one 512-byte block.
+        #[cfg(unix)]
+        assert!(size >= 3 * 512 && size.is_multiple_of(512), "got {size}");
+        #[cfg(not(unix))]
         assert_eq!(size, 12);
         Ok(())
     }

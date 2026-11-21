@@ -4,31 +4,107 @@
 //! (like "100MB" or "1.5GiB") into byte values, and for measuring directory
 //! sizes on disk.
 
-use std::path::Path;
+use std::{collections::HashMap, fs::Metadata, path::Path};
 
 use anyhow::Result;
 use walkdir::WalkDir;
 
-/// Calculate the total size of a directory and all its contents, in bytes.
+/// A file with more than one hard link, seen during a directory walk.
+#[derive(Debug)]
+struct LinkedFile {
+    /// Number of links to this file found inside the walked directory.
+    links_seen: u64,
+    /// Total number of links to this file on the file system.
+    links_total: u64,
+    /// Disk space that this file uses, in bytes.
+    disk_usage: u64,
+}
+
+/// Calculate the disk space that deleting a directory would free, in bytes.
 ///
-/// Recursively traverses the directory tree using `walkdir` and sums the sizes
-/// of all files found. Errors for individual entries (permission denied, broken
-/// symlinks, etc.) are silently skipped so the function always returns a result.
+/// Recursively traverses the directory tree using `walkdir` and sums the
+/// disk usage of all files found. The result matches the space that a
+/// deletion gives back, not the apparent size of the files:
+///
+/// - On Unix, the size of a file is the number of allocated blocks
+///   (`st_blocks * 512`), like `du`. Sparse files count only the blocks
+///   they use, and small files count a full block.
+/// - A file with several hard links inside the directory counts one time.
+/// - A file with a hard link outside the directory counts zero times,
+///   because deleting the directory does not free its data. This is the
+///   case for a `node_modules` directory that `pnpm` fills from its store.
+///
+/// On other platforms, the function uses the apparent size of each file.
+///
+/// Symbolic links are not followed. Errors for individual entries
+/// (permission denied, broken symlinks, etc.) are silently skipped so the
+/// function always returns a result.
 ///
 /// Returns `0` if the path does not exist or cannot be traversed at the root level.
 #[must_use]
 pub fn calculate_dir_size(path: &Path) -> u64 {
     let mut total = 0u64;
+    let mut linked_files: HashMap<(u64, u64), LinkedFile> = HashMap::new();
 
     for entry in WalkDir::new(path).into_iter().flatten() {
-        if entry.file_type().is_file()
-            && let Ok(metadata) = entry.metadata()
-        {
-            total += metadata.len();
+        if !entry.file_type().is_file() {
+            continue;
+        }
+
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+
+        match hard_link_key(&metadata) {
+            Some((key, links_total)) => {
+                linked_files
+                    .entry(key)
+                    .or_insert_with(|| LinkedFile {
+                        links_seen: 0,
+                        links_total,
+                        disk_usage: disk_usage(&metadata),
+                    })
+                    .links_seen += 1;
+            }
+            None => total = total.saturating_add(disk_usage(&metadata)),
         }
     }
 
-    total
+    linked_files
+        .values()
+        .filter(|file| file.links_seen >= file.links_total)
+        .fold(total, |acc, file| acc.saturating_add(file.disk_usage))
+}
+
+/// Return the disk space that a file uses, in bytes.
+#[cfg(unix)]
+fn disk_usage(metadata: &Metadata) -> u64 {
+    use std::os::unix::fs::MetadataExt;
+
+    // `st_blocks` is always in units of 512 bytes, whatever the block size
+    // of the file system.
+    metadata.blocks().saturating_mul(512)
+}
+
+/// Return the disk space that a file uses, in bytes.
+#[cfg(not(unix))]
+fn disk_usage(metadata: &Metadata) -> u64 {
+    metadata.len()
+}
+
+/// Return the `(device, inode)` key and the link count of a file that has
+/// more than one hard link, or `None` for a file with a single link.
+#[cfg(unix)]
+fn hard_link_key(metadata: &Metadata) -> Option<((u64, u64), u64)> {
+    use std::os::unix::fs::MetadataExt;
+
+    (metadata.nlink() > 1).then(|| ((metadata.dev(), metadata.ino()), metadata.nlink()))
+}
+
+/// Hard links are not detected on this platform: every file counts one time.
+#[cfg(not(unix))]
+const fn hard_link_key(_metadata: &Metadata) -> Option<((u64, u64), u64)> {
+    None
 }
 
 /// Parse a human-readable size string into bytes.
@@ -332,6 +408,111 @@ mod tests {
         // Zero with units
         assert_eq!(parse_size("0KB")?, 0);
         assert_eq!(parse_size("0.0MB")?, 0);
+        Ok(())
+    }
+
+    // ── calculate_dir_size ──────────────────────────────────────────────
+
+    /// Write `len` bytes of real data to `path`.
+    fn write_file(path: &Path, len: usize) -> anyhow::Result<()> {
+        std::fs::write(path, vec![b'x'; len])?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_dir_size_nonexistent_is_zero() {
+        assert_eq!(calculate_dir_size(Path::new("/nonexistent/path")), 0);
+    }
+
+    #[test]
+    fn test_dir_size_covers_file_contents() -> anyhow::Result<()> {
+        let tmp = tempfile::TempDir::new()?;
+        write_file(&tmp.path().join("a.bin"), 100_000)?;
+
+        assert!(calculate_dir_size(tmp.path()) >= 100_000);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_dir_size_counts_blocks_on_unix() -> anyhow::Result<()> {
+        let tmp = tempfile::TempDir::new()?;
+        write_file(&tmp.path().join("tiny.txt"), 1)?;
+
+        let size = calculate_dir_size(tmp.path());
+        assert!(
+            size >= 512,
+            "a 1-byte file uses at least one block, got {size}"
+        );
+        assert!(size.is_multiple_of(512));
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_dir_size_hard_links_inside_count_once() -> anyhow::Result<()> {
+        let tmp = tempfile::TempDir::new()?;
+        let original = tmp.path().join("original.bin");
+        write_file(&original, 100_000)?;
+        let single = calculate_dir_size(tmp.path());
+
+        std::fs::hard_link(&original, tmp.path().join("link-1.bin"))?;
+        std::fs::hard_link(&original, tmp.path().join("link-2.bin"))?;
+
+        assert_eq!(calculate_dir_size(tmp.path()), single);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_dir_size_hard_link_to_outside_is_not_reclaimable() -> anyhow::Result<()> {
+        let tmp = tempfile::TempDir::new()?;
+        let store = tmp.path().join("store");
+        let modules = tmp.path().join("node_modules");
+        std::fs::create_dir_all(&store)?;
+        std::fs::create_dir_all(&modules)?;
+
+        let stored = store.join("package.bin");
+        write_file(&stored, 100_000)?;
+        std::fs::hard_link(&stored, modules.join("package.bin"))?;
+        write_file(&modules.join("own.bin"), 100_000)?;
+
+        let own_only = {
+            let check = tempfile::TempDir::new()?;
+            write_file(&check.path().join("own.bin"), 100_000)?;
+            calculate_dir_size(check.path())
+        };
+
+        // Deleting node_modules frees only the file that it alone owns.
+        assert_eq!(calculate_dir_size(&modules), own_only);
+        // The parent holds every link, so the shared file counts one time.
+        assert_eq!(calculate_dir_size(tmp.path()), own_only * 2);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_dir_size_sparse_file_counts_allocated_blocks() -> anyhow::Result<()> {
+        let tmp = tempfile::TempDir::new()?;
+        let sparse = std::fs::File::create(tmp.path().join("sparse.img"))?;
+        sparse.set_len(64 * 1024 * 1024)?;
+
+        assert!(calculate_dir_size(tmp.path()) < 64 * 1024 * 1024);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_dir_size_does_not_follow_symlinks() -> anyhow::Result<()> {
+        let tmp = tempfile::TempDir::new()?;
+        let outside = tmp.path().join("outside");
+        let inside = tmp.path().join("inside");
+        std::fs::create_dir_all(&outside)?;
+        std::fs::create_dir_all(&inside)?;
+        write_file(&outside.join("big.bin"), 100_000)?;
+        std::os::unix::fs::symlink(&outside, inside.join("link"))?;
+
+        assert_eq!(calculate_dir_size(&inside), 0);
         Ok(())
     }
 }
