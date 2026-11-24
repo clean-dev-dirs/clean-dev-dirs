@@ -3,7 +3,6 @@ authors = ["Tom Planche <tomplanche@proton.me>"]
 categories = ["command-line-utilities", "filesystem"]
 description = "A fast CLI tool for recursively cleaning development build directories (Rust, Node.js, Python, Go, Java/Kotlin, C/C++, Swift, .NET) to reclaim disk space"
 edition = "2024"
-homepage = "https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs"
 include = [
     "/Cargo.toml",
     "/LICENSE-APACHE",
@@ -15,7 +14,7 @@ keywords = ["cli", "cleanup", "build-artifacts", "disk-space", "developer-tools"
 license = "Apache-2.0 OR MIT"
 name = "clean-dev-dirs"
 readme = "README.md"
-repository = "https://github.com/clean-dev-dirs/clean-dev-dirs"
+repository = "https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs"
 version = "2.9.1"
 
 [lib]

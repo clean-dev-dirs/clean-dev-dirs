@@ -1,0 +1,286 @@
+# The release pipeline on Forgejo (git.tomplanche.com).
+#
+# When a push to main changes the version in Cargo.toml (that is, when the tag
+# v<version> does not exist yet), this workflow:
+#
+#   1. creates the tag and the release on Forgejo, with the source archive,
+#   2. builds the Linux binary on the Linux runner,
+#   3. builds the 2 macOS binaries on the macOS runner (label macos-arm64),
+#   4. publishes the crate on crates.io,
+#   5. opens a pull request on the Homebrew tap.
+#
+# The push mirror then copies the tag to GitHub. GitHub runs no workflow.
+#
+# Secrets of the repository:
+#   RELEASE_TOKEN  Forgejo access token with write access to the repository
+#                  and to the Homebrew tap.
+#   CRATES_TOKEN   crates.io API token.
+#
+# Read docs/maintaining.md for the setup of the runners and the secrets.
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  API: https://git.tomplanche.com/api/v1
+  REPO: clean-dev-dirs/clean-dev-dirs
+  TAP_REPO: clean-dev-dirs/homebrew-clean-dev-dirs
+
+jobs:
+  version:
+    name: Detect a version bump
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.detect.outputs.version }}
+      release: ${{ steps.detect.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compare the version with the tags
+        id: detect
+        run: |
+          set -euo pipefail
+          VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/v${VERSION}" > /dev/null; then
+            echo "Tag v${VERSION} exists: no release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag v${VERSION} does not exist: release."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  create-release:
+    name: Create the tag and the release
+    needs: version
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.id }}
+      source_sha256: ${{ steps.source.outputs.sha256 }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TOKEN: ${{ secrets.RELEASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Install jq
+        run: command -v jq > /dev/null || (apt-get update -qq && apt-get install -y -qq jq)
+
+      - name: Create and push the tag
+        run: |
+          set -euo pipefail
+          git config user.name "forgejo-actions"
+          git config user.email "forgejo-actions@noreply.git.tomplanche.com"
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
+
+      - name: Create the source archive
+        id: source
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ARCHIVE="dist/clean-dev-dirs-${VERSION}.tar.gz"
+          git archive --format=tar.gz --prefix="clean-dev-dirs-${VERSION}/" -o "${ARCHIVE}" "v${VERSION}"
+          echo "sha256=$(sha256sum "${ARCHIVE}" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Create the release
+        id: release
+        run: |
+          set -euo pipefail
+          sed "s/{{VERSION}}/${VERSION}/g" .forgejo/release_body.md > release_body.md
+          ID=$(jq -n --arg tag "v${VERSION}" --rawfile body release_body.md \
+                 '{tag_name: $tag, name: $tag, body: $body}' \
+               | curl --silent --show-error --fail --request POST \
+                   --header "Authorization: token ${TOKEN}" \
+                   --header "Content-Type: application/json" \
+                   --data @- "${API}/repos/${REPO}/releases" \
+               | jq -r .id)
+          echo "Release ID: ${ID}"
+          echo "id=${ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the source archive
+        env:
+          RELEASE_ID: ${{ steps.release.outputs.id }}
+        run: .forgejo/scripts/upload-asset.sh "dist/clean-dev-dirs-${VERSION}.tar.gz"
+
+  build-linux:
+    name: Build the Linux binary
+    needs: [version, create-release]
+    runs-on: ubuntu-latest
+    outputs:
+      bottle_sha256: ${{ steps.package.outputs.bottle_sha256 }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.version.outputs.version }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release --locked
+
+      - name: Create the archive and the bottle
+        id: package
+        run: |
+          set -euo pipefail
+          rm -rf dist bottle
+          mkdir -p dist "bottle/clean-dev-dirs/${VERSION}/bin"
+          tar -czf "dist/clean-dev-dirs-${VERSION}-linux-x86_64.tar.gz" -C target/release clean-dev-dirs
+          cp target/release/clean-dev-dirs "bottle/clean-dev-dirs/${VERSION}/bin/"
+          BOTTLE="dist/clean-dev-dirs-${VERSION}.x86_64_linux.bottle.tar.gz"
+          tar -czf "${BOTTLE}" -C bottle clean-dev-dirs
+          echo "bottle_sha256=$(sha256sum "${BOTTLE}" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the assets
+        run: for f in dist/*; do .forgejo/scripts/upload-asset.sh "$f"; done
+
+  build-macos:
+    name: Build the macOS binaries
+    needs: [version, create-release]
+    # A forgejo-runner in host mode on a Mac with Apple Silicon. It builds the
+    # Intel binary with the x86_64-apple-darwin target.
+    runs-on: macos-arm64
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      arm64_bottle_sha256: ${{ steps.package.outputs.arm64_bottle_sha256 }}
+      x86_64_bottle_sha256: ${{ steps.package.outputs.x86_64_bottle_sha256 }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.version.outputs.version }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Build
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+
+      - name: Create the archives and the bottles
+        id: package
+        run: |
+          set -euo pipefail
+          rm -rf dist bottle-arm64 bottle-x86_64
+          mkdir -p dist
+
+          package() {
+            local target="$1" arch="$2" bottle_tag="$3" output="$4"
+            local bin="target/${target}/release/clean-dev-dirs"
+            local bottle_dir="bottle-${arch}/clean-dev-dirs/${VERSION}/bin"
+            local bottle="dist/clean-dev-dirs-${VERSION}.${bottle_tag}.bottle.tar.gz"
+
+            tar -czf "dist/clean-dev-dirs-${VERSION}-macos-${arch}.tar.gz" -C "$(dirname "${bin}")" clean-dev-dirs
+            mkdir -p "${bottle_dir}"
+            cp "${bin}" "${bottle_dir}/"
+            tar -czf "${bottle}" -C "bottle-${arch}" clean-dev-dirs
+            echo "${output}=$(shasum -a 256 "${bottle}" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          }
+
+          package aarch64-apple-darwin arm64 arm64_sequoia arm64_bottle_sha256
+          package x86_64-apple-darwin x86_64 sequoia x86_64_bottle_sha256
+
+      - name: Upload the assets
+        run: for f in dist/*; do .forgejo/scripts/upload-asset.sh "$f"; done
+
+  publish-crate:
+    name: Publish on crates.io
+    needs: [version, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.version.outputs.version }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
+        run: |
+          set -euo pipefail
+          # crates.io refuses requests without a User-Agent.
+          STATUS=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            --user-agent "clean-dev-dirs-release-workflow" \
+            "https://crates.io/api/v1/crates/clean-dev-dirs/${VERSION}")
+          if [ "${STATUS}" = "200" ]; then
+            echo "Version ${VERSION} is already on crates.io: skip."
+            exit 0
+          fi
+          cargo publish --locked
+
+  update-tap:
+    name: Open a pull request on the Homebrew tap
+    needs: [version, create-release, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      SOURCE_SHA256: ${{ needs.create-release.outputs.source_sha256 }}
+      LINUX_SHA256: ${{ needs.build-linux.outputs.bottle_sha256 }}
+      ARM64_SHA256: ${{ needs.build-macos.outputs.arm64_bottle_sha256 }}
+      X86_64_SHA256: ${{ needs.build-macos.outputs.x86_64_bottle_sha256 }}
+    steps:
+      - name: Install jq
+        run: command -v jq > /dev/null || (apt-get update -qq && apt-get install -y -qq jq)
+
+      - name: Update the formula and push a branch
+        run: |
+          set -euo pipefail
+          BRANCH="bump/clean-dev-dirs-v${VERSION}"
+          URL="https://git.tomplanche.com/${REPO}/releases/download/v${VERSION}/clean-dev-dirs-${VERSION}.tar.gz"
+          FORMULA="Formula/clean-dev-dirs.rb"
+
+          git clone "https://forgejo-actions:${TOKEN}@git.tomplanche.com/${TAP_REPO}.git" tap
+          cd tap
+          git switch -c "${BRANCH}"
+
+          sed -i "s|^  url \".*\"|  url \"${URL}\"|" "${FORMULA}"
+          sed -i "s|^  sha256 \".*\"|  sha256 \"${SOURCE_SHA256}\"|" "${FORMULA}"
+          sed -i "s|^  version \".*\"|  version \"${VERSION}\"|" "${FORMULA}"
+          sed -i "s|assert_match \"clean-dev-dirs [^\"]*\"|assert_match \"clean-dev-dirs ${VERSION}\"|" "${FORMULA}"
+          sed -i "/arm64_sequoia:/s/\"[^\"]*\"/\"${ARM64_SHA256}\"/" "${FORMULA}"
+          sed -i "/, sequoia:/s/\"[^\"]*\"/\"${X86_64_SHA256}\"/" "${FORMULA}"
+          sed -i "/x86_64_linux:/s/\"[^\"]*\"/\"${LINUX_SHA256}\"/" "${FORMULA}"
+
+          git config user.name "forgejo-actions"
+          git config user.email "forgejo-actions@noreply.git.tomplanche.com"
+          git commit -am "clean-dev-dirs: bump to v${VERSION}"
+          git push origin "${BRANCH}"
+
+      - name: Open the pull request
+        run: |
+          set -euo pipefail
+          jq -n \
+            --arg head "bump/clean-dev-dirs-v${VERSION}" \
+            --arg title "clean-dev-dirs: bump to v${VERSION}" \
+            --arg body "Bump Formula/clean-dev-dirs.rb to v${VERSION}: url, sha256, version, test, and bottle checksums." \
+            '{head: $head, base: "main", title: $title, body: $body}' \
+          | curl --silent --show-error --fail --request POST \
+              --header "Authorization: token ${TOKEN}" \
+              --header "Content-Type: application/json" \
+              --data @- "${API}/repos/${TAP_REPO}/pulls" \
+          | jq -r '"Pull request: \(.html_url)"'

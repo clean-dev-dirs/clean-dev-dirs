@@ -16,6 +16,7 @@
 | [Sizes](sizes.md) | The size formats, and how the tool measures a build directory |
 | [Safety](safety.md) | How the tool prevents unwanted deletions |
 | [Contributing](contributing.md) | Add support for a new language |
+| [Maintaining](maintaining.md) | The forges, the release process, and the setup of the infrastructure |
 
 ## Inspiration
 
