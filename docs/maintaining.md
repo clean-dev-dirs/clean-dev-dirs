@@ -29,7 +29,7 @@ Forgejo has no macOS runner, so GitHub builds the macOS binaries:
 2. On GitHub, the `macOS release build` workflow starts. It builds the Apple Silicon and Intel binaries and their bottles.
 3. The GitHub workflow uploads these files to the release on Forgejo.
 
-The last job on Forgejo waits 60 minutes at most for the macOS bottles. Then it fails.
+The last job on Forgejo waits 45 minutes at most for the macOS bottles. Then it fails. The limit is below 1 hour because the Linux runner stops a job after 1 hour.
 
 The push mirror also copies the tap to GitHub. The `brew` command reads the tap from GitHub.
 

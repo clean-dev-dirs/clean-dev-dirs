@@ -196,16 +196,16 @@ jobs:
           set -euo pipefail
           ARM64="clean-dev-dirs-${VERSION}.arm64_sequoia.bottle.tar.gz"
           X86_64="clean-dev-dirs-${VERSION}.sequoia.bottle.tar.gz"
-          # Wait 60 minutes at most. If the time is over, run this job again
+          # Wait 45 minutes at most: the runner stops a job after 1 hour. If the time is over, run this job again
           # when the GitHub workflow is done.
-          for attempt in $(seq 1 60); do
+          for attempt in $(seq 1 45); do
             NAMES=$(curl --silent --show-error --fail --header "Authorization: token ${TOKEN}" \
                       "${API}/repos/${REPO}/releases/${RELEASE_ID}/assets" | jq -r '.[].name') || NAMES=""
             if echo "${NAMES}" | grep -qxF "${ARM64}" && echo "${NAMES}" | grep -qxF "${X86_64}"; then
               break
             fi
-            if [ "${attempt}" = 60 ]; then
-              echo "The macOS bottles are not on the release after 60 minutes."
+            if [ "${attempt}" = 45 ]; then
+              echo "The macOS bottles are not on the release after 45 minutes."
               exit 1
             fi
             echo "The macOS bottles are not on the release (attempt ${attempt}). Wait 60 seconds."
