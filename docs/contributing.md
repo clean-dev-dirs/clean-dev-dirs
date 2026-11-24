@@ -1,6 +1,6 @@
 # Contributing
 
-Contributions are welcome. The primary repository is on [Forgejo](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs). GitHub is a mirror.
+Contributions are welcome. The primary repository is on [git.tomplanche.com](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs), the self-hosted Forgejo instance of [Tom Planche](https://tomplanche.com). GitHub is a mirror.
 
 - To report a problem, open an issue on [Forgejo](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/issues). If you cannot use Forgejo, use [GitHub](https://github.com/clean-dev-dirs/clean-dev-dirs/issues).
 - To propose a change, open a pull request on [Forgejo](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/pulls). If you cannot use Forgejo, use [GitHub](https://github.com/clean-dev-dirs/clean-dev-dirs/pulls).

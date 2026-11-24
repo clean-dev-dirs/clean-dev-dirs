@@ -79,7 +79,7 @@ You can use this project under the [MIT License](LICENSE-MIT) or the [Apache Lic
 
 ## Support
 
-The primary repository is on Forgejo. GitHub is a mirror.
+The primary repository is on [git.tomplanche.com](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs), the self-hosted Forgejo instance of [Tom Planche](https://tomplanche.com). GitHub is a mirror.
 
 - Issues: [Forgejo Issues](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/issues). If you cannot use Forgejo, use [GitHub Issues](https://github.com/clean-dev-dirs/clean-dev-dirs/issues).
 - Crates.io: [clean-dev-dirs](https://crates.io/crates/clean-dev-dirs)
