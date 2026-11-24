@@ -172,12 +172,21 @@ Do these steps for `clean-dev-dirs` and for `homebrew-clean-dev-dirs`:
    for s in PAT_TOKEN CLEAN_DEV_DIRS_PRS_TOKEN; do gh secret delete "$s" --repo clean-dev-dirs/homebrew-clean-dev-dirs; done
    ```
 
-### 7. Update the download counter of the bottles
+### 7. Download the bottles from Forgejo
 
-The formula gets its bottles from `https://tomplanche.com/api/brew/track/clean-dev-dirs`. Change the target of this redirect to the release assets on Forgejo:
+The `root_url` of the formula must point to the release on Forgejo:
 
+```ruby
+bottle do
+  root_url "https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/releases/download/v<version>"
 ```
-https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/releases/download/v<version>/<file>
+
+Homebrew adds the name of the bottle to this URL. The `update-tap` job changes the version in `root_url` at each release.
+
+Forgejo counts the downloads of each file of a release. To see the counts, run this command:
+
+```bash
+curl -s https://git.tomplanche.com/api/v1/repos/clean-dev-dirs/clean-dev-dirs/releases/tags/v<version> | jq -r '.assets[] | "\(.name) \(.download_count)"'
 ```
 
 ### 8. Update your local clones
