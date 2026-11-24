@@ -5,18 +5,19 @@
 #
 #   1. creates the tag and the release on Forgejo, with the source archive,
 #   2. builds the Linux binary on the Linux runner,
-#   3. builds the 2 macOS binaries on the macOS runner (label macos-arm64),
-#   4. publishes the crate on crates.io,
-#   5. opens a pull request on the Homebrew tap.
+#   3. publishes the crate on crates.io,
+#   4. waits for the macOS bottles, then opens a pull request on the Homebrew tap.
 #
-# The push mirror then copies the tag to GitHub. GitHub runs no workflow.
+# Forgejo has no macOS runner. The push mirror copies the tag to GitHub, and
+# .github/workflows/macos.yml builds the macOS binaries there. That workflow
+# uploads them to this release.
 #
 # Secrets of the repository:
 #   RELEASE_TOKEN  Forgejo access token with write access to the repository
 #                  and to the Homebrew tap.
 #   CRATES_TOKEN   crates.io API token.
 #
-# Read docs/maintaining.md for the setup of the runners and the secrets.
+# Read docs/maintaining.md for the setup of the secrets and the GitHub part.
 name: Release
 
 on:
@@ -148,65 +149,9 @@ jobs:
       - name: Upload the assets
         run: for f in dist/*; do .forgejo/scripts/upload-asset.sh "$f"; done
 
-  build-macos:
-    name: Build the macOS binaries
-    needs: [version, create-release]
-    # A forgejo-runner in host mode on a Mac with Apple Silicon. It builds the
-    # Intel binary with the x86_64-apple-darwin target.
-    runs-on: macos-arm64
-    defaults:
-      run:
-        shell: bash
-    outputs:
-      arm64_bottle_sha256: ${{ steps.package.outputs.arm64_bottle_sha256 }}
-      x86_64_bottle_sha256: ${{ steps.package.outputs.x86_64_bottle_sha256 }}
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
-      TOKEN: ${{ secrets.RELEASE_TOKEN }}
-      RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: v${{ needs.version.outputs.version }}
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-apple-darwin, x86_64-apple-darwin
-
-      - name: Build
-        run: |
-          cargo build --release --locked --target aarch64-apple-darwin
-          cargo build --release --locked --target x86_64-apple-darwin
-
-      - name: Create the archives and the bottles
-        id: package
-        run: |
-          set -euo pipefail
-          rm -rf dist bottle-arm64 bottle-x86_64
-          mkdir -p dist
-
-          package() {
-            local target="$1" arch="$2" bottle_tag="$3" output="$4"
-            local bin="target/${target}/release/clean-dev-dirs"
-            local bottle_dir="bottle-${arch}/clean-dev-dirs/${VERSION}/bin"
-            local bottle="dist/clean-dev-dirs-${VERSION}.${bottle_tag}.bottle.tar.gz"
-
-            tar -czf "dist/clean-dev-dirs-${VERSION}-macos-${arch}.tar.gz" -C "$(dirname "${bin}")" clean-dev-dirs
-            mkdir -p "${bottle_dir}"
-            cp "${bin}" "${bottle_dir}/"
-            tar -czf "${bottle}" -C "bottle-${arch}" clean-dev-dirs
-            echo "${output}=$(shasum -a 256 "${bottle}" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
-          }
-
-          package aarch64-apple-darwin arm64 arm64_sequoia arm64_bottle_sha256
-          package x86_64-apple-darwin x86_64 sequoia x86_64_bottle_sha256
-
-      - name: Upload the assets
-        run: for f in dist/*; do .forgejo/scripts/upload-asset.sh "$f"; done
-
   publish-crate:
     name: Publish on crates.io
-    needs: [version, build-linux, build-macos]
+    needs: [version, build-linux]
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.version.outputs.version }}
@@ -234,18 +179,48 @@ jobs:
 
   update-tap:
     name: Open a pull request on the Homebrew tap
-    needs: [version, create-release, build-linux, build-macos]
+    needs: [version, create-release, build-linux]
     runs-on: ubuntu-latest
     env:
       VERSION: ${{ needs.version.outputs.version }}
       TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
       SOURCE_SHA256: ${{ needs.create-release.outputs.source_sha256 }}
       LINUX_SHA256: ${{ needs.build-linux.outputs.bottle_sha256 }}
-      ARM64_SHA256: ${{ needs.build-macos.outputs.arm64_bottle_sha256 }}
-      X86_64_SHA256: ${{ needs.build-macos.outputs.x86_64_bottle_sha256 }}
     steps:
       - name: Install jq
         run: command -v jq > /dev/null || (apt-get update -qq && apt-get install -y -qq jq)
+
+      - name: Wait for the macOS bottles from GitHub
+        run: |
+          set -euo pipefail
+          ARM64="clean-dev-dirs-${VERSION}.arm64_sequoia.bottle.tar.gz"
+          X86_64="clean-dev-dirs-${VERSION}.sequoia.bottle.tar.gz"
+          # Wait 60 minutes at most. If the time is over, run this job again
+          # when the GitHub workflow is done.
+          for attempt in $(seq 1 60); do
+            NAMES=$(curl --silent --show-error --fail --header "Authorization: token ${TOKEN}" \
+                      "${API}/repos/${REPO}/releases/${RELEASE_ID}/assets" | jq -r '.[].name') || NAMES=""
+            if echo "${NAMES}" | grep -qxF "${ARM64}" && echo "${NAMES}" | grep -qxF "${X86_64}"; then
+              break
+            fi
+            if [ "${attempt}" = 60 ]; then
+              echo "The macOS bottles are not on the release after 60 minutes."
+              exit 1
+            fi
+            echo "The macOS bottles are not on the release (attempt ${attempt}). Wait 60 seconds."
+            sleep 60
+          done
+
+          sha() {
+            curl --silent --show-error --fail --location --header "Authorization: token ${TOKEN}" \
+              "https://git.tomplanche.com/${REPO}/releases/download/v${VERSION}/$1" \
+              | sha256sum | cut -d ' ' -f 1
+          }
+          ARM64_SHA256=$(sha "${ARM64}")
+          X86_64_SHA256=$(sha "${X86_64}")
+          echo "ARM64_SHA256=${ARM64_SHA256}" >> "$GITHUB_ENV"
+          echo "X86_64_SHA256=${X86_64_SHA256}" >> "$GITHUB_ENV"
 
       - name: Update the formula and push a branch
         run: |

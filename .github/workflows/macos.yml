@@ -1,0 +1,118 @@
+# The macOS part of the release, on the GitHub mirror.
+#
+# Forgejo (git.tomplanche.com) has no macOS runner. Thus, GitHub builds the
+# macOS binaries. The Release workflow on Forgejo creates the tag v<version>,
+# and the push mirror copies the tag to GitHub. This workflow then:
+#
+#   1. builds the Apple Silicon and Intel binaries,
+#   2. creates their archives and their Homebrew bottles,
+#   3. uploads these files to the release on Forgejo.
+#
+# The update-tap job of the Forgejo workflow waits for the 2 bottles.
+#
+# Forgejo does not run this file: it reads only .forgejo/workflows when this
+# directory exists.
+#
+# Secret of the GitHub repository:
+#   FORGEJO_TOKEN  Forgejo access token with write access to the repository.
+#
+# Read docs/maintaining.md for the setup.
+name: macOS release build
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag of the release, for example v2.9.2
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  API: https://git.tomplanche.com/api/v1
+  REPO: clean-dev-dirs/clean-dev-dirs
+
+jobs:
+  build-macos:
+    name: Build the macOS binaries
+    # Do not run in the forks of the mirror.
+    if: github.repository == 'clean-dev-dirs/clean-dev-dirs'
+    # Apple Silicon with macOS 15 (Sequoia). The bottle tags must match this
+    # version of macOS.
+    runs-on: macos-15
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Build
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+
+      - name: Create the archives and the bottles
+        run: |
+          set -euo pipefail
+          VERSION="${TAG#v}"
+          rm -rf dist bottle-arm64 bottle-x86_64
+          mkdir -p dist
+
+          package() {
+            local target="$1" arch="$2" bottle_tag="$3"
+            local bin="target/${target}/release/clean-dev-dirs"
+            local bottle_dir="bottle-${arch}/clean-dev-dirs/${VERSION}/bin"
+
+            tar -czf "dist/clean-dev-dirs-${VERSION}-macos-${arch}.tar.gz" -C "$(dirname "${bin}")" clean-dev-dirs
+            mkdir -p "${bottle_dir}"
+            cp "${bin}" "${bottle_dir}/"
+            tar -czf "dist/clean-dev-dirs-${VERSION}.${bottle_tag}.bottle.tar.gz" -C "bottle-${arch}" clean-dev-dirs
+          }
+
+          package aarch64-apple-darwin arm64 arm64_sequoia
+          package x86_64-apple-darwin x86_64 sequoia
+          shasum -a 256 dist/*
+
+      - name: Find the release on Forgejo
+        run: |
+          set -euo pipefail
+          # Forgejo creates the release some seconds after it pushes the tag.
+          for attempt in $(seq 1 20); do
+            ID=$(curl --silent --fail --header "Authorization: token ${TOKEN}" \
+                   "${API}/repos/${REPO}/releases/tags/${TAG}" | jq -r .id) && break
+            echo "Release ${TAG} not found (attempt ${attempt}). Wait 30 seconds."
+            sleep 30
+          done
+          if [ -z "${ID:-}" ]; then
+            echo "Release ${TAG} does not exist on Forgejo."
+            exit 1
+          fi
+          echo "Release ID: ${ID}"
+          echo "RELEASE_ID=${ID}" >> "$GITHUB_ENV"
+
+      - name: Upload the assets
+        run: |
+          set -euo pipefail
+          # If the workflow runs again, replace the files of the previous run.
+          ASSETS=$(curl --silent --show-error --fail --header "Authorization: token ${TOKEN}" \
+                     "${API}/repos/${REPO}/releases/${RELEASE_ID}/assets")
+          for f in dist/*; do
+            NAME="$(basename "$f")"
+            for OLD in $(echo "${ASSETS}" | jq -r --arg n "${NAME}" '.[] | select(.name == $n) | .id'); do
+              echo "Deleting the previous ${NAME}"
+              curl --silent --show-error --fail --request DELETE \
+                --header "Authorization: token ${TOKEN}" \
+                "${API}/repos/${REPO}/releases/${RELEASE_ID}/assets/${OLD}"
+            done
+            .forgejo/scripts/upload-asset.sh "$f"
+          done

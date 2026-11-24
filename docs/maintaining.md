@@ -7,7 +7,7 @@ This page is for the maintainers. It explains where the project lives, how a rel
 | Place | Role |
 |-------|------|
 | [git.tomplanche.com](https://git.tomplanche.com/clean-dev-dirs), the self-hosted Forgejo instance of [Tom Planche](https://tomplanche.com) | Primary forge: code, issues, pull requests, CI, releases |
-| [GitHub](https://github.com/clean-dev-dirs) | Push mirror of Forgejo. It runs no workflow. Homebrew reads the tap from it. Its issues stay open as a backup for the people who cannot use Forgejo. |
+| [GitHub](https://github.com/clean-dev-dirs) | Push mirror of Forgejo. It runs only one workflow: the macOS build of a release, because Forgejo has no macOS runner. Homebrew reads the tap from it. Its issues stay open as a backup for the people who cannot use Forgejo. |
 | [crates.io](https://crates.io/crates/clean-dev-dirs) | The published crate |
 
 Forgejo pushes each change to GitHub. Do not push to GitHub directly: the next sync of the push mirror replaces the GitHub branches and tags with the Forgejo ones.
@@ -19,18 +19,29 @@ Forgejo pushes each change to GitHub. Do not push to GitHub directly: the next s
 3. Wait for the `Release` workflow on Forgejo. It does these steps:
    1. It creates the tag `v<version>` and the release, with the source archive.
    2. The Linux runner builds the Linux binary and its Homebrew bottle.
-   3. The macOS runner builds the Apple Silicon and Intel binaries and their bottles.
-   4. It publishes the crate on crates.io.
-   5. It opens a pull request on the Homebrew tap.
+   3. It publishes the crate on crates.io.
+   4. It waits for the macOS bottles. Then it opens a pull request on the Homebrew tap.
 4. Merge the pull request on the Homebrew tap.
 
-The push mirror then copies the tag and the tap to GitHub. The `brew` command reads the tap from GitHub.
+Forgejo has no macOS runner, so GitHub builds the macOS binaries:
 
-The macOS runner must be on during the release. If it is off, the macOS job waits until the runner is on again.
+1. The push mirror copies the new tag to GitHub.
+2. On GitHub, the `macOS release build` workflow starts. It builds the Apple Silicon and Intel binaries and their bottles.
+3. The GitHub workflow uploads these files to the release on Forgejo.
 
-If a job fails after the release workflow created the tag, fix the cause and run the failed job again from the Actions page of Forgejo. Do not run the full workflow again: the tag exists, so the workflow detects no new version.
+The last job on Forgejo waits 60 minutes at most for the macOS bottles. Then it fails.
 
-The workflow is `.forgejo/workflows/release.yml`.
+The push mirror also copies the tap to GitHub. The `brew` command reads the tap from GitHub.
+
+If a job on Forgejo fails after the release workflow created the tag, fix the cause. Then run the failed job again from the Actions page of Forgejo. Do not run the full workflow again: the tag exists, so the workflow detects no new version.
+
+If the GitHub workflow fails, fix the cause. Then start the GitHub workflow again with the tag. The workflow replaces the macOS files of the release:
+
+```bash
+gh workflow run macos.yml --repo clean-dev-dirs/clean-dev-dirs -f tag=v<version>
+```
+
+The workflows are `.forgejo/workflows/release.yml` and `.github/workflows/macos.yml`. Forgejo does not run the files in `.github/workflows`, because the `.forgejo/workflows` directory exists.
 
 ## One-time setup
 
@@ -90,53 +101,16 @@ Do these steps in this order. The push mirror (step 5) replaces the content of G
 
    GitHub refuses a push that changes `.github/workflows` without the **Workflows** permission. The first sync deletes the old GitHub workflows, so this permission is necessary.
 
-### 3. Set up the macOS runner
+### 3. Give GitHub access to the Forgejo releases
 
-The release builds the macOS binaries on a Mac with Apple Silicon. The Mac runs `forgejo-runner` in host mode: the jobs run directly on macOS, not in a container.
+The GitHub workflow uploads the macOS files to the release on Forgejo. It needs a Forgejo token for this upload.
 
-1. Install the tools that the jobs use:
-
-   ```bash
-   brew install forgejo-runner
-   ```
+1. In Forgejo, open **Settings > Applications** and create a second access token with the `write:repository` scope. Use a token that is different from `RELEASE_TOKEN`: then you can revoke one token and keep the other.
+2. Add the token to the secrets of the GitHub repository. The command asks for the value, so the token does not go into your shell history:
 
    ```bash
-   rustup target add aarch64-apple-darwin x86_64-apple-darwin
+   gh secret set FORGEJO_TOKEN --repo clean-dev-dirs/clean-dev-dirs
    ```
-
-   The Mac also needs Node.js (for `actions/checkout`) and the Xcode command line tools.
-
-2. In Forgejo, open the settings of the `clean-dev-dirs` organization, then **Actions > Runners > Create new runner**. Copy the registration token.
-
-3. Find the working directory of the Homebrew service in the `WorkingDirectory` key of this file:
-
-   ```bash
-   cat "$(brew --prefix)/opt/forgejo-runner/homebrew.mxcl.forgejo-runner.plist"
-   ```
-
-4. In that directory, register the runner with the `macos-arm64` label in host mode:
-
-   ```bash
-   forgejo-runner register --no-interactive --instance https://git.tomplanche.com --token <registration-token> --name mac-arm64 --labels macos-arm64:host
-   ```
-
-5. A background service does not read your shell profile. Thus, give the jobs a `PATH` that contains Cargo and Node.js. In `/opt/homebrew/etc/forgejo-runner/config.yaml`, set:
-
-   ```yaml
-   runner:
-     envs:
-       PATH: <home>/.cargo/bin:<path-to-node>/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin
-   ```
-
-   Replace `<home>` with your home directory and `<path-to-node>` with the directory of Node.js (`dirname "$(command -v node)"`).
-
-6. Start the service:
-
-   ```bash
-   brew services start forgejo-runner
-   ```
-
-7. In Forgejo, make sure that the runner shows as online, with the `macos-arm64` label.
 
 ### 4. Merge the Forgejo configuration
 
@@ -160,10 +134,16 @@ Do these steps for `clean-dev-dirs` and for `homebrew-clean-dev-dirs`:
 
 ### 6. Make GitHub a read-only mirror
 
-1. Turn off GitHub Actions, the wiki, and the projects. Keep the issues of `clean-dev-dirs`: the documentation gives them as a backup.
+1. Turn off the wiki and the projects. Keep the issues of `clean-dev-dirs`: the documentation gives them as a backup.
 
    ```bash
-   for r in clean-dev-dirs homebrew-clean-dev-dirs; do gh api --method PUT "repos/clean-dev-dirs/$r/actions/permissions" -F enabled=false; gh repo edit "clean-dev-dirs/$r" --enable-wiki=false --enable-projects=false --homepage "https://git.tomplanche.com/clean-dev-dirs/$r"; done
+   for r in clean-dev-dirs homebrew-clean-dev-dirs; do gh repo edit "clean-dev-dirs/$r" --enable-wiki=false --enable-projects=false --homepage "https://git.tomplanche.com/clean-dev-dirs/$r"; done
+   ```
+
+   Turn off GitHub Actions on the tap only. The `clean-dev-dirs` repository needs GitHub Actions for the macOS build:
+
+   ```bash
+   gh api --method PUT repos/clean-dev-dirs/homebrew-clean-dev-dirs/actions/permissions -F enabled=false
    ```
 
    ```bash
