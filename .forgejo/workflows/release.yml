@@ -236,6 +236,7 @@ jobs:
           sed -i "s|^  url \".*\"|  url \"${URL}\"|" "${FORMULA}"
           sed -i "s|^  sha256 \".*\"|  sha256 \"${SOURCE_SHA256}\"|" "${FORMULA}"
           sed -i "s|^  version \".*\"|  version \"${VERSION}\"|" "${FORMULA}"
+          sed -i "s|^    root_url \".*\"|    root_url \"https://git.tomplanche.com/${REPO}/releases/download/v${VERSION}\"|" "${FORMULA}"
           sed -i "s|assert_match \"clean-dev-dirs [^\"]*\"|assert_match \"clean-dev-dirs ${VERSION}\"|" "${FORMULA}"
           sed -i "/arm64_sequoia:/s/\"[^\"]*\"/\"${ARM64_SHA256}\"/" "${FORMULA}"
           sed -i "/, sequoia:/s/\"[^\"]*\"/\"${X86_64_SHA256}\"/" "${FORMULA}"
@@ -252,7 +253,7 @@ jobs:
           jq -n \
             --arg head "bump/clean-dev-dirs-v${VERSION}" \
             --arg title "clean-dev-dirs: bump to v${VERSION}" \
-            --arg body "Bump Formula/clean-dev-dirs.rb to v${VERSION}: url, sha256, version, test, and bottle checksums." \
+            --arg body "Bump Formula/clean-dev-dirs.rb to v${VERSION}: url, sha256, version, test, bottle root_url, and bottle checksums." \
             '{head: $head, base: "main", title: $title, body: $body}' \
           | curl --silent --show-error --fail --request POST \
               --header "Authorization: token ${TOKEN}" \
