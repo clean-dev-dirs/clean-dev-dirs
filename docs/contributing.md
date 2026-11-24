@@ -3,7 +3,7 @@
 Contributions are welcome. The primary repository is on [git.tomplanche.com](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs), the self-hosted Forgejo instance of [Tom Planche](https://tomplanche.com). GitHub is a mirror.
 
 - To report a problem, open an issue on [Forgejo](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/issues). If you cannot use Forgejo, use [GitHub](https://github.com/clean-dev-dirs/clean-dev-dirs/issues).
-- To propose a change, open a pull request on [Forgejo](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/pulls). If you cannot use Forgejo, use [GitHub](https://github.com/clean-dev-dirs/clean-dev-dirs/pulls).
+- To propose a change, open a pull request on [Forgejo](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/pulls). If you cannot use Forgejo, use [GitHub](https://github.com/clean-dev-dirs/clean-dev-dirs/pulls). GitHub is a mirror, so a maintainer applies the change on Forgejo.
 
 ## Development commands
 
@@ -17,6 +17,8 @@ cargo clippy --workspace --release --all-targets --all-features -- -D warnings  
 The pre-commit hook runs `cargo fmt`, `cargo clippy`, `cargo audit`, and `cargo outdated`. The pre-push hook runs the tests and the build. `build.rs` installs these hooks with hooksmith.
 
 The Clippy configuration denies the `pedantic` and `nursery` groups. Your code must pass Clippy with no warning.
+
+The CI runs on Forgejo (`.forgejo/workflows/ci.yml`): tests, Clippy, and the formatting check. [Maintaining](maintaining.md) explains the release process.
 
 ## Add support for a new language
 

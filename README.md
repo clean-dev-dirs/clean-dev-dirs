@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="https://crates.io/crates/clean-dev-dirs"><img src="https://img.shields.io/crates/v/clean-dev-dirs.svg" alt="Crates.io Version"></a>
-  <a href="LICENSE-MIT"><img src="https://img.shields.io/crates/l/clean-dev-dirs" alt="License"></a>
+  <a href="https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/src/branch/main/LICENSE-MIT"><img src="https://img.shields.io/crates/l/clean-dev-dirs" alt="License"></a>
 </p>
 
 `clean-dev-dirs` is a fast CLI tool that finds your development projects and deletes their build directories to free disk space. It supports Rust, Node.js, Python, Go, Java/Kotlin, C/C++, Swift, .NET/C#, Ruby, Elixir, Deno, PHP, Haskell, Dart/Flutter, Zig, and Scala. It can also clean the global caches of package managers and build tools.
@@ -29,7 +29,7 @@ With Homebrew:
 brew install clean-dev-dirs/clean-dev-dirs/clean-dev-dirs
 ```
 
-[Installation](docs/installation.md) gives the other methods.
+[Installation](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/src/branch/main/docs/installation.md) gives the other methods.
 
 ## Use
 
@@ -63,19 +63,19 @@ Run `clean-dev-dirs --help` to see all the options.
 
 ## Documentation
 
-- [Usage](docs/usage.md): filters, sort order, interactive selection, trash, and permanent deletion.
-- [Global caches](docs/global-caches.md): the `caches` subcommand.
-- [Configuration](docs/configuration.md): default values in a configuration file.
-- [JSON output](docs/json-output.md): results for scripts.
-- [Command reference](docs/command-reference.md): all the commands and options.
-- [Project detection](docs/project-detection.md): the supported project types, and what the tool deletes.
-- [Sizes](docs/sizes.md): size formats, and how the tool measures a directory.
-- [Safety](docs/safety.md): how the tool prevents unwanted deletions.
-- [Contributing](docs/contributing.md): add support for a new language.
+- [Usage](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/src/branch/main/docs/usage.md): filters, sort order, interactive selection, trash, and permanent deletion.
+- [Global caches](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/src/branch/main/docs/global-caches.md): the `caches` subcommand.
+- [Configuration](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/src/branch/main/docs/configuration.md): default values in a configuration file.
+- [JSON output](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/src/branch/main/docs/json-output.md): results for scripts.
+- [Command reference](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/src/branch/main/docs/command-reference.md): all the commands and options.
+- [Project detection](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/src/branch/main/docs/project-detection.md): the supported project types, and what the tool deletes.
+- [Sizes](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/src/branch/main/docs/sizes.md): size formats, and how the tool measures a directory.
+- [Safety](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/src/branch/main/docs/safety.md): how the tool prevents unwanted deletions.
+- [Contributing](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/src/branch/main/docs/contributing.md): add support for a new language.
 
 ## License
 
-You can use this project under the [MIT License](LICENSE-MIT) or the [Apache License 2.0](LICENSE-APACHE), at your choice.
+You can use this project under the [MIT License](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/src/branch/main/LICENSE-MIT) or the [Apache License 2.0](https://git.tomplanche.com/clean-dev-dirs/clean-dev-dirs/src/branch/main/LICENSE-APACHE), at your choice.
 
 ## Support
 
