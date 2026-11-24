@@ -49,6 +49,7 @@ clean-dev-dirs --interactive
 - **Executable preservation**: Keep compiled binaries before cleaning with `--keep-executables`
 - **Safe by default**: Moves directories to the system trash for recoverable deletions; use `--permanent` when you want `rm -rf`
 - **JSON output**: Structured `--json` output for scripting, piping, and dashboard integration
+- **Global caches**: Clean the caches of Cargo, npm, pnpm, Yarn, Maven, Gradle, Go, pip, uv and Xcode with `clean-dev-dirs caches`
 - **Detailed statistics**: See total space that can be reclaimed before cleaning
 - **Persistent configuration**: Set defaults in `~/.config/clean-dev-dirs/config.toml` so you don't repeat flags
 - **Flexible configuration**: Combine multiple filters and options for precise control
@@ -356,6 +357,49 @@ clean-dev-dirs --yes
 clean-dev-dirs ~/Projects -p rust --keep-size 100MB --keep-days 30 --dry-run
 ```
 
+### Global Caches
+
+Package managers and build tools keep large caches outside of your projects. The `caches` subcommand finds them, measures them, and cleans them:
+
+```bash
+# List the global caches and the reclaimable space
+clean-dev-dirs caches --dry-run
+
+# Clean only some caches
+clean-dev-dirs caches --only cargo,npm
+
+# Choose the caches in an interactive list
+clean-dev-dirs caches -i
+
+# Delete permanently, without a confirmation prompt
+clean-dev-dirs caches --permanent -y
+
+# Machine-readable output
+clean-dev-dirs caches --dry-run --json | jq '.summary.total_size_formatted'
+```
+
+| Kind | Directories |
+|------|-------------|
+| `cargo` | `$CARGO_HOME/registry`, `$CARGO_HOME/git` (default `~/.cargo`) |
+| `npm` | `~/.npm/_cacache`, or `$npm_config_cache/_cacache` |
+| `pnpm` | The pnpm store (`~/Library/pnpm/store`, `~/.local/share/pnpm/store`, `%LOCALAPPDATA%\pnpm\store`), or `$npm_config_store_dir` |
+| `yarn` | The Yarn classic cache and `~/.yarn/berry/cache`, or `$YARN_CACHE_FOLDER` |
+| `maven` | `~/.m2/repository` |
+| `gradle` | `$GRADLE_USER_HOME/caches`, `$GRADLE_USER_HOME/wrapper/dists` (default `~/.gradle`) |
+| `go` | The module cache (`$GOMODCACHE`, default `~/go/pkg/mod`) and the build cache (`$GOCACHE`) |
+| `pip` | The pip cache (`~/Library/Caches/pip`, `~/.cache/pip`), or `$PIP_CACHE_DIR` |
+| `uv` | The uv cache (`~/.cache/uv`), or `$UV_CACHE_DIR` |
+| `xcode` | `~/Library/Developer/Xcode/DerivedData` (macOS) |
+
+Each tool downloads or rebuilds its cache the next time it needs it. The subcommand never deletes configuration files, installed binaries, or credentials: it removes `~/.cargo/registry` but never `~/.cargo/bin`, and `~/.m2/repository` but never `~/.m2/settings.xml`. Empty caches are not listed.
+
+Some points to know:
+
+- Close the IDEs and stop the builds that use a cache before you clean it.
+- The caches go to the system trash by default. The trash keeps the space until you empty it, so use `--permanent` to free the space at once. The `use_trash` and `dry_run` values of the configuration file also apply to this subcommand.
+- The Go module cache contains read-only directories. With `--permanent`, the tool makes them writable before it deletes them.
+- On macOS, pnpm copies its packages into projects as APFS clones. The size of the store can then be larger than the space that its deletion frees.
+
 ### Configuration File
 
 You can store default settings in a TOML file so you don't have to repeat the same flags every time. CLI arguments always override config file values.
@@ -514,6 +558,21 @@ clean-dev-dirs config <COMMAND>
 | `config path` | Print the platform-specific path to the config file |
 | `config show` | Print every setting with its current value or annotated default |
 | `config init` | Write a fully commented-out template if no config file exists yet |
+
+### Caches Subcommand
+
+```
+clean-dev-dirs caches [OPTIONS]
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--only <KINDS>` | | Only these caches, comma-separated: `cargo`, `npm`, `pnpm`, `yarn`, `maven`, `gradle`, `go`, `pip`, `uv`, `xcode` |
+| `--dry-run` | | List the caches and the reclaimable space without deleting anything |
+| `--interactive` | `-i` | Choose which caches to clean in an interactive list |
+| `--yes` | `-y` | Do not ask for confirmation |
+| `--permanent` | | Delete permanently instead of moving to the system trash |
+| `--json` | | Output a single JSON object |
 
 ### Main Arguments
 

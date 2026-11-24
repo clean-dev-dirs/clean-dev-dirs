@@ -10,7 +10,10 @@ use std::collections::BTreeMap;
 use humansize::{DECIMAL, format_size};
 use serde::Serialize;
 
-use crate::project::{Project, ProjectType};
+use crate::{
+    caches::{CacheKind, GlobalCache},
+    project::{Project, ProjectType},
+};
 
 /// Top-level JSON output emitted when `--json` is active.
 #[derive(Debug, Serialize)]
@@ -218,6 +221,93 @@ impl JsonCleanupResult {
             total_freed: result.total_freed,
             total_freed_formatted: format_size(result.total_freed, DECIMAL),
             errors: result.errors.clone(),
+        }
+    }
+}
+
+/// Top-level JSON output of the `caches` subcommand.
+#[derive(Debug, Serialize)]
+pub struct JsonCachesOutput {
+    /// The execution mode: `"dry_run"` or `"cleanup"`.
+    pub mode: String,
+
+    /// The global caches that were found (and selected).
+    pub caches: Vec<JsonCacheEntry>,
+
+    /// Aggregated summary statistics.
+    pub summary: JsonCachesSummary,
+
+    /// Cleanup results. Present only when an actual cleanup was performed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cleanup: Option<JsonCleanupResult>,
+}
+
+/// A single global cache in the JSON output.
+#[derive(Debug, Serialize)]
+pub struct JsonCacheEntry {
+    /// The tool that owns the cache (`"cargo"`, `"npm"`, `"go"`, ...).
+    pub kind: CacheKind,
+
+    /// Absolute path to the cache directory.
+    pub path: String,
+
+    /// Disk space that deleting the cache frees, in bytes.
+    pub size: u64,
+
+    /// Human-readable formatted size (e.g. `"1.23 GB"`).
+    pub size_formatted: String,
+}
+
+/// Aggregated summary across all selected caches.
+#[derive(Debug, Serialize)]
+pub struct JsonCachesSummary {
+    /// Number of caches.
+    pub total_caches: usize,
+
+    /// Total reclaimable size in bytes.
+    pub total_size: u64,
+
+    /// Human-readable formatted total size.
+    pub total_size_formatted: String,
+}
+
+impl JsonCachesOutput {
+    /// Build the output of a dry run.
+    #[must_use]
+    pub fn dry_run(caches: &[GlobalCache]) -> Self {
+        Self::build("dry_run", caches, None)
+    }
+
+    /// Build the output of a cleanup.
+    #[must_use]
+    pub fn cleanup(caches: &[GlobalCache], clean_result: &crate::cleaner::CleanResult) -> Self {
+        Self::build(
+            "cleanup",
+            caches,
+            Some(JsonCleanupResult::from_clean_result(clean_result)),
+        )
+    }
+
+    fn build(mode: &str, caches: &[GlobalCache], cleanup: Option<JsonCleanupResult>) -> Self {
+        let total_size = crate::caches::total_size(caches);
+
+        Self {
+            mode: mode.to_string(),
+            caches: caches
+                .iter()
+                .map(|cache| JsonCacheEntry {
+                    kind: cache.kind,
+                    path: cache.path.display().to_string(),
+                    size: cache.size,
+                    size_formatted: format_size(cache.size, DECIMAL),
+                })
+                .collect(),
+            summary: JsonCachesSummary {
+                total_caches: caches.len(),
+                total_size,
+                total_size_formatted: format_size(total_size, DECIMAL),
+            },
+            cleanup,
         }
     }
 }

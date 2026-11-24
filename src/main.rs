@@ -35,18 +35,20 @@ mod cli;
 use anyhow::{Ok, Result, bail};
 use clap::Parser;
 use clean_dev_dirs::{
+    caches::{self, CacheEnvironment, GlobalCache},
     cleaner::{Cleaner, RemovalStrategy},
     config::FileConfig,
     filtering::{filter_projects, sort_projects},
-    output::JsonOutput,
+    output::{JsonCachesOutput, JsonOutput},
     project::{Project, Projects},
     scanner::Scanner,
 };
-use cli::{Cli, Commands, ConfigCommand};
+use cli::{CachesArgs, Cli, Commands, ConfigCommand};
 use colored::Colorize;
 use humansize::{DECIMAL, format_size};
-use inquire::Confirm;
-use std::process::exit;
+use indicatif::ProgressBar;
+use inquire::{Confirm, MultiSelect};
+use std::{process::exit, time::Duration};
 
 /// Entry point for the clean-dev-dirs application.
 ///
@@ -73,8 +75,10 @@ fn main() {
 fn inner_main() -> Result<()> {
     let args = Cli::parse();
 
-    if let Some(Commands::Config { command }) = &args.subcommand {
-        return handle_config_command(command);
+    match &args.subcommand {
+        Some(Commands::Config { command }) => return handle_config_command(command),
+        Some(Commands::Caches(caches_args)) => return handle_caches_command(caches_args),
+        None => {}
     }
 
     let json_mode = args.json();
@@ -342,6 +346,152 @@ fn init_config() -> Result<()> {
 
     println!("Config file written to: {}", path.display());
     Ok(())
+}
+
+// ── Caches subcommand ────────────────────────────────────────────────
+
+/// Find, list, and optionally clean the global caches of package managers.
+fn handle_caches_command(args: &CachesArgs) -> Result<()> {
+    let json_mode = args.json;
+    let file_config = load_config(json_mode);
+
+    if json_mode && args.interactive {
+        bail!("--json and --interactive cannot be used together");
+    }
+
+    let Some(env) = CacheEnvironment::from_system() else {
+        bail!("Could not determine the home directory on this platform");
+    };
+
+    let spinner = start_spinner(json_mode, "Measuring global caches...");
+    let found = caches::find_caches(&env, &args.only);
+    spinner.finish_and_clear();
+
+    if found.is_empty() {
+        if json_mode {
+            let output = JsonCachesOutput::dry_run(&[]);
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            println!("{}", "No global caches found!".green());
+        }
+        return Ok(());
+    }
+
+    if !json_mode {
+        println!("{}", "Found global caches:".bold());
+        caches::print_caches(&found);
+    }
+
+    let selected = if args.interactive {
+        select_caches(found)?
+    } else {
+        found
+    };
+
+    if selected.is_empty() {
+        println!("{}", "No caches selected for cleaning!".green());
+        return Ok(());
+    }
+
+    let total = caches::total_size(&selected);
+
+    if args.dry_run(&file_config) {
+        if json_mode {
+            let output = JsonCachesOutput::dry_run(&selected);
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        } else {
+            println!(
+                "\n{} {}",
+                "[dry-run] Complete.".yellow(),
+                format!("Would free up {}", format_size(total, DECIMAL)).bright_white()
+            );
+        }
+        return Ok(());
+    }
+
+    let strategy = RemovalStrategy::from_use_trash(args.use_trash(&file_config));
+
+    if !json_mode {
+        println!(
+            "\n{}",
+            "[NOTE] Close the IDEs and stop the builds that use these caches before you clean them."
+                .yellow()
+        );
+
+        if matches!(strategy, RemovalStrategy::Trash) {
+            println!(
+                "{}",
+                "[NOTE] The trash keeps the space until you empty it. Use --permanent to free it now."
+                    .yellow()
+            );
+        }
+    }
+
+    if !args.yes && !json_mode {
+        let plural = if selected.len() == 1 { "" } else { "s" };
+        let confirmed = Confirm::new(&format!(
+            "Clean {} global cache{plural} ({})?",
+            selected.len(),
+            format_size(total, DECIMAL)
+        ))
+        .with_default(false)
+        .prompt()?;
+
+        if !confirmed {
+            return Ok(());
+        }
+    }
+
+    let spinner = start_spinner(
+        json_mode,
+        match strategy {
+            RemovalStrategy::Permanent => "Deleting caches...",
+            RemovalStrategy::Trash => "Moving caches to trash...",
+        },
+    );
+    let result = caches::clean_caches(&selected, strategy);
+    spinner.finish_and_clear();
+
+    if json_mode {
+        let output = JsonCachesOutput::cleanup(&selected, &result);
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else {
+        caches::print_clean_summary(&result);
+    }
+
+    Ok(())
+}
+
+/// Start a spinner with `message`, or a hidden progress bar in JSON mode.
+fn start_spinner(json_mode: bool, message: &'static str) -> ProgressBar {
+    if json_mode {
+        return ProgressBar::hidden();
+    }
+
+    let spinner = ProgressBar::new_spinner();
+    spinner.set_message(message);
+    spinner.enable_steady_tick(Duration::from_millis(100));
+    spinner
+}
+
+/// Let the user choose which caches to clean. All caches are selected by default.
+fn select_caches(found: Vec<GlobalCache>) -> Result<Vec<GlobalCache>> {
+    let items: Vec<String> = found.iter().map(caches::format_cache_line).collect();
+    let defaults: Vec<usize> = (0..items.len()).collect();
+
+    let selected_indexes: Vec<usize> = MultiSelect::new("Select caches to clean:", items)
+        .with_default(&defaults)
+        .raw_prompt()?
+        .into_iter()
+        .map(|option| option.index)
+        .collect();
+
+    Ok(found
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| selected_indexes.contains(index))
+        .map(|(_, cache)| cache)
+        .collect())
 }
 
 /// Load the configuration file, falling back to defaults on failure.
