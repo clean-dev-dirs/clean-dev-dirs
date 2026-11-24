@@ -6,6 +6,7 @@
 //! This library provides the core functionality for the clean-dev-dirs CLI tool,
 //! allowing for scanning, filtering, and cleaning development project build artifacts.
 
+pub mod caches;
 pub mod cleaner;
 pub mod config;
 pub mod executables;

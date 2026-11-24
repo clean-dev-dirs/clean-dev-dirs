@@ -9,8 +9,9 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
+use clean_dev_dirs::caches::CacheKind;
 use clean_dev_dirs::config::file::{FileConfig, expand_tilde};
 use clean_dev_dirs::config::{
     ExecutionOptions, FilterOptions, ProjectFilter, ScanOptions, SortCriteria, SortOptions,
@@ -162,6 +163,56 @@ pub(crate) enum Commands {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+
+    /// Find and clean the global caches of package managers and build tools
+    ///
+    /// Covers the caches of Cargo, npm, pnpm, Yarn, Maven, Gradle, Go, pip,
+    /// uv and Xcode. Each tool downloads or rebuilds its cache when it needs
+    /// it again. Configuration files and installed binaries are never touched.
+    Caches(CachesArgs),
+}
+
+/// Command-line arguments for the `caches` subcommand.
+#[derive(Args, Debug)]
+#[allow(clippy::struct_excessive_bools)]
+pub(crate) struct CachesArgs {
+    /// Only these caches (comma-separated), e.g. `--only cargo,npm`
+    #[arg(long, value_enum, value_delimiter = ',')]
+    pub(crate) only: Vec<CacheKind>,
+
+    /// Don't ask for confirmation; clean all the found caches
+    #[arg(short = 'y', long)]
+    pub(crate) yes: bool,
+
+    /// List the caches and the reclaimable space without deleting anything
+    #[arg(long)]
+    pub(crate) dry_run: bool,
+
+    /// Choose which caches to clean in an interactive list
+    #[arg(short = 'i', long)]
+    pub(crate) interactive: bool,
+
+    /// Permanently delete the caches instead of moving them to the system trash
+    #[arg(long)]
+    pub(crate) permanent: bool,
+
+    /// Output results as a single JSON object for scripting/piping
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+impl CachesArgs {
+    /// Whether to move the caches to the trash (CLI `--permanent` > config `use_trash` > `true`).
+    #[must_use]
+    pub(crate) fn use_trash(&self, config: &FileConfig) -> bool {
+        !self.permanent && config.execution.use_trash.unwrap_or(true)
+    }
+
+    /// Whether to only preview the cleanup (CLI `--dry-run` or config `dry_run`).
+    #[must_use]
+    pub(crate) fn dry_run(&self, config: &FileConfig) -> bool {
+        self.dry_run || config.execution.dry_run.unwrap_or(false)
+    }
 }
 
 /// Subcommands for `config`.
@@ -1120,5 +1171,86 @@ mod tests {
 
         let filter_opts = args.filter_options(&config);
         assert_eq!(filter_opts.name_pattern.as_deref(), Some("cli-pat*"));
+    }
+
+    // ── caches subcommand ───────────────────────────────────────────────
+
+    /// Parse a `caches` command line and return its arguments.
+    fn parse_caches(command_line: &[&str]) -> anyhow::Result<CachesArgs> {
+        match Cli::parse_from(command_line).subcommand {
+            Some(Commands::Caches(caches_args)) => Ok(caches_args),
+            _ => anyhow::bail!("expected the caches subcommand"),
+        }
+    }
+
+    #[test]
+    fn test_caches_subcommand_defaults() -> anyhow::Result<()> {
+        let args = parse_caches(&["clean-dev-dirs", "caches"])?;
+
+        assert_eq!(args.only, Vec::<CacheKind>::new());
+        assert!(!args.yes);
+        assert!(!args.json);
+        assert!(!args.interactive);
+        assert!(!args.dry_run(&FileConfig::default()));
+        assert!(args.use_trash(&FileConfig::default()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_caches_only_accepts_comma_separated_kinds() -> anyhow::Result<()> {
+        let args = parse_caches(&[
+            "clean-dev-dirs",
+            "caches",
+            "--only",
+            "cargo,npm",
+            "--only",
+            "go",
+        ])?;
+
+        assert_eq!(
+            args.only,
+            vec![CacheKind::Cargo, CacheKind::Npm, CacheKind::Go]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_caches_only_rejects_unknown_kind() {
+        assert!(Cli::try_parse_from(["clean-dev-dirs", "caches", "--only", "bogus"]).is_err());
+    }
+
+    #[test]
+    fn test_caches_flags() -> anyhow::Result<()> {
+        let args = parse_caches(&[
+            "clean-dev-dirs",
+            "caches",
+            "-y",
+            "--dry-run",
+            "--permanent",
+            "--json",
+        ])?;
+
+        assert!(args.yes);
+        assert!(args.json);
+        assert!(args.dry_run(&FileConfig::default()));
+        assert!(!args.use_trash(&FileConfig::default()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_caches_respects_config_execution_values() -> anyhow::Result<()> {
+        let args = parse_caches(&["clean-dev-dirs", "caches"])?;
+        let config = FileConfig {
+            execution: FileExecutionConfig {
+                use_trash: Some(false),
+                dry_run: Some(true),
+                ..FileExecutionConfig::default()
+            },
+            ..FileConfig::default()
+        };
+
+        assert!(!args.use_trash(&config));
+        assert!(args.dry_run(&config));
+        Ok(())
     }
 }
